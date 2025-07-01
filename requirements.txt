@@ -1,0 +1,35 @@
+# requirements.txt - Optimizado para AWS Lambda Production
+# Version pinning para reproducibilidad y seguridad
+
+# HTTP client - Core dependency
+requests==2.31.0
+
+# HTTP transport layer con security fixes
+urllib3==1.26.18
+
+# Updated SSL certificates para HTTPS seguro
+certifi==2023.11.17
+
+# Type hints compatibility para Python 3.8+
+typing-extensions==4.8.0
+
+# Optional: Si necesitas OAuth para algún proveedor
+# requests-oauthlib==1.3.1
+
+# Note: Standard library modules used (no additional requirements):
+# - json (JSON parsing)
+# - time (timestamps y métricas)  
+# - hashlib (file integrity checksums)
+# - urllib.parse (URL manipulation)
+# - logging (structured logging)
+# - os (environment variables)
+# - sys (command line arguments)  
+# - functools (decorators)
+# - pathlib (file path handling)
+# - base64 (binary file encoding)
+# - datetime (timestamps)
+# - typing (type hints)
+
+# WARNING: subprocess module used for SVN
+# SVN support will NOT work in AWS Lambda environment
+# Use GitHub, GitLab, or Azure DevOps instead
