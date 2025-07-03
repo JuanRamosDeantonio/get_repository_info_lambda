@@ -128,27 +128,85 @@ class GitHubManager(ISourceCodeManager):
     def download_file(self, path: str) -> bytes:
         """
         Descarga el contenido binario de un archivo específico en la rama activa.
+        Implementa fallback: raw URL -> API contents -> error detallado.
         """
         try:
-
-            encoded_path = urllib.parse.quote(path)
-            print("ENCODEURL**************************************************************")
-            print(encoded_path)
-            print("ENCODEURL**************************************************************")
-
-            url = f"{self.raw_base}/{encoded_path}"
-            print("URL**************************************************************")
-            print(url)
-            print("URL**************************************************************")
-
-            log_api_call("github", "download_file", path=path)
-
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
-            return response.content
-
-        except requests.HTTPError as http_err:
-            raise SourceCodeError(f"Error downloading file: {str(http_err)}", provider="github")
-
+            # Método 1: Intentar raw URL (más eficiente)
+            encoded_path = urllib.parse.quote(path, safe='/')  # No codificar las barras
+            raw_url = f"{self.raw_base}/{encoded_path}"
+            
+            print(f"🔄 Intentando raw URL: {raw_url}")
+            
+            response = requests.get(raw_url, headers=self.headers)
+            
+            # Verificar si es realmente el archivo binario
+            if response.status_code == 200:
+                content_type = response.headers.get('content-type', '').lower()
+                
+                # Si GitHub devuelve HTML (error), usar API
+                if 'text/html' in content_type:
+                    print(f"⚠️ Raw URL devolvió HTML, usando GitHub API")
+                    return self._download_via_api(path)
+                
+                print(f"✅ Raw URL exitosa. Content-Type: {content_type}, Size: {len(response.content)} bytes")
+                return response.content
+            
+            # Si raw URL falla, usar API
+            elif response.status_code == 404:
+                print(f"⚠️ Raw URL no encontrada (404), intentando GitHub API")
+                return self._download_via_api(path)
+            
+            else:
+                response.raise_for_status()
+                
         except Exception as e:
-            raise SourceCodeError(f"Unexpected error during file download: {str(e)}", provider="github")
+            print(f"❌ Error con raw URL: {str(e)}")
+            # Fallback a API
+            return self._download_via_api(path)
+
+    def _download_via_api(self, path: str) -> bytes:
+        """
+        Descarga archivo usando GitHub Contents API (devuelve base64).
+        """
+        try:
+            # GitHub Contents API
+            api_url = f"{self.api_base}/contents/{path}"
+            params = {'ref': self.branch}
+            
+            print(f"🔄 Usando GitHub API: {api_url}")
+            
+            log_api_call("github", "download_file_api", path=path)
+            
+            response = requests.get(api_url, headers=self.headers, params=params)
+            
+            if response.status_code == 404:
+                raise SourceCodeError(f"📁 Archivo no encontrado: {path}", provider="github")
+            
+            response.raise_for_status()
+            
+            file_data = response.json()
+            
+            # Verificar que es un archivo (no directorio)
+            if file_data.get('type') != 'file':
+                raise SourceCodeError(f"📂 La ruta especificada es un directorio, no un archivo: {path}", provider="github")
+            
+            # El contenido viene en base64
+            import base64
+            content_b64 = file_data.get('content', '')
+            
+            if not content_b64:
+                raise SourceCodeError(f"📄 El archivo está vacío: {path}", provider="github")
+            
+            # Decodificar de base64
+            binary_content = base64.b64decode(content_b64)
+            
+            print(f"✅ API exitosa. Size: {len(binary_content)} bytes")
+            return binary_content
+            
+        except requests.HTTPError as http_err:
+            if http_err.response.status_code == 403:
+                raise SourceCodeError("🚫 Sin permisos para acceder al archivo o límite de API excedido", provider="github")
+            raise SourceCodeError(f"❌ Error HTTP descargando archivo: {str(http_err)}", provider="github")
+        
+        except Exception as e:
+            raise SourceCodeError(f"❌ Error inesperado descargando archivo: {str(e)}", provider="github")

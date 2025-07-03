@@ -1,18 +1,18 @@
 """
-Sistema de validación robusto para entrada de usuarios y configuraciones.
+Sistema de validacion robusto para entrada de usuarios y configuraciones.
 
-Este módulo proporciona validadores reutilizables y componibles para:
-- Validación de configuraciones de proveedores
-- Sanitización de rutas de archivos
-- Validación de parámetros de entrada
-- Detección de ataques de seguridad
+Este modulo proporciona validadores reutilizables y componibles para:
+- Validacion de configuraciones de proveedores
+- Sanitizacion de rutas de archivos
+- Validacion de parametros de entrada
+- Deteccion de ataques de seguridad
 
 Features:
-- Validadores específicos por proveedor
-- Detección avanzada de path traversal
+- Validadores especificos por proveedor
+- Deteccion avanzada de path traversal
 - Caching de validaciones para performance
-- Integración con sistema de excepciones
-- Logging automático de eventos de seguridad
+- Integracion con sistema de excepciones
+- Logging automatico de eventos de seguridad
 
 Author: [Your Name]
 Created: 2025
@@ -46,7 +46,7 @@ from app.core.exceptions import (
 )
 from app.core.logger import get_logger, log_security_event
 
-# Logger para el módulo
+# Logger para el modulo
 logger = get_logger(__name__)
 
 # ========================================
@@ -55,23 +55,23 @@ logger = get_logger(__name__)
 
 def validate_operation(operation: str) -> str:
     """
-    Valida que la operación solicitada sea soportada.
+    Valida que la operacion solicitada sea soportada.
     
     Args:
-        operation: Operación a validar
+        operation: Operacion a validar
         
     Returns:
-        str: Operación validada
+        str: Operacion validada
         
     Raises:
-        ValidationError: Si la operación es inválida
+        ValidationError: Si la operacion es invalida
         
     Example:
         >>> validate_operation("GET_STRUCTURE")
         'GET_STRUCTURE'
         
         >>> validate_operation("INVALID_OP")
-        ValidationError: Operación 'INVALID_OP' no soportada
+        ValidationError: Operacion 'INVALID_OP' no soportada
     """
     if not operation or not isinstance(operation, str):
         raise create_validation_error(
@@ -86,7 +86,7 @@ def validate_operation(operation: str) -> str:
     if operation not in Operations.ALL:
         available_ops = ", ".join(Operations.ALL)
         raise create_validation_error(
-            f"Operación '{operation}' no soportada. Disponibles: {available_ops}",
+            f"Operacion '{operation}' no soportada. Disponibles: {available_ops}",
             field_name="operation",
             received_value=operation,
             error_code=ErrorCodes.INVALID_OPERATION
@@ -107,7 +107,7 @@ def validate_provider(provider: str) -> str:
         str: Proveedor validado (normalizado a lowercase)
         
     Raises:
-        ValidationError: Si el proveedor es inválido
+        ValidationError: Si el proveedor es invalido
         
     Example:
         >>> validate_provider("GitHub")
@@ -140,50 +140,50 @@ def validate_provider(provider: str) -> str:
 
 
 # ========================================
-# VALIDADORES DE CONFIGURACIÓN
+# VALIDADORES DE CONFIGURACION
 # ========================================
 
 def validate_config(provider: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Valida la configuración completa de un proveedor.
+    Valida la configuracion completa de un proveedor.
     
-    Orquesta todas las validaciones necesarias para un proveedor específico:
-    - Validación de tipo y estructura básica
+    Orquesta todas las validaciones necesarias para un proveedor especifico:
+    - Validacion de tipo y estructura basica
     - Claves requeridas y opcionales
-    - Validaciones específicas del proveedor
-    - Sanitización de valores
+    - Validaciones especificas del proveedor
+    - Sanitizacion de valores
     
     Args:
         provider: Proveedor ya validado
-        config: Configuración a validar
+        config: Configuracion a validar
         
     Returns:
-        Dict[str, Any]: Configuración validada y sanitizada
+        Dict[str, Any]: Configuracion validada y sanitizada
         
     Raises:
-        ConfigurationError: Si la configuración es inválida
+        ConfigurationError: Si la configuracion es invalida
         
     Example:
         >>> config = {"token": "ghp_xxx", "owner": "user", "repo": "repo"}
         >>> validate_config("github", config)
         {'token': 'ghp_xxx', 'owner': 'user', 'repo': 'repo', 'branch': 'main'}
     """
-    # Validación básica de tipo
+    # Validacion basica de tipo
     if not isinstance(config, dict):
         raise create_config_error(
-            "La configuración debe ser un diccionario",
+            "La configuracion debe ser un diccionario",
             provider=provider,
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
     
     if not config:
         raise create_config_error(
-            "La configuración no puede estar vacía",
+            "La configuracion no puede estar vacia",
             provider=provider,
             error_code=ErrorCodes.MISSING_CONFIG
         )
     
-    # Obtener configuración del proveedor
+    # Obtener configuracion del proveedor
     provider_config = SUPPORTED_PROVIDERS[provider]
     required_keys = provider_config["required_keys"]
     optional_keys = provider_config.get("optional_keys", [])
@@ -199,14 +199,14 @@ def validate_config(provider: str, config: Dict[str, Any]) -> Dict[str, Any]:
             error_code=ErrorCodes.MISSING_REQUIRED_KEYS
         )
     
-    # Identificar claves inválidas (ni requeridas ni opcionales)
+    # Identificar claves invalidas (ni requeridas ni opcionales)
     valid_keys = set(required_keys + optional_keys)
     invalid_keys = [key for key in config.keys() if key not in valid_keys]
     if invalid_keys:
         logger.warning(f"Invalid keys for {provider}: {invalid_keys}")
-        # No es error crítico, pero loggeamos para awareness
+        # No es error critico, pero loggeamos para awareness
     
-    # Crear configuración validada con defaults
+    # Crear configuracion validada con defaults
     validated_config = config.copy()
     
     # Agregar valores por defecto para claves opcionales
@@ -220,7 +220,7 @@ def validate_config(provider: str, config: Dict[str, Any]) -> Dict[str, Any]:
     elif provider == "azure" and "branch" not in validated_config:
         validated_config["branch"] = provider_config["default_branch"]
     
-    # Validaciones específicas por proveedor
+    # Validaciones especificas por proveedor
     if provider == "github":
         validated_config = _validate_github_config(validated_config)
     elif provider == "gitlab":
@@ -240,7 +240,7 @@ def validate_config(provider: str, config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_github_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validaciones específicas para configuración de GitHub"""
+    """Validaciones especificas para configuracion de GitHub"""
     validated = config.copy()
     
     # Validar formato de token
@@ -254,7 +254,7 @@ def _validate_github_config(config: Dict[str, Any]) -> Dict[str, Any]:
     owner = validated["owner"]
     if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-])*[a-zA-Z0-9]$', owner):
         raise create_config_error(
-            f"GitHub owner '{owner}' contiene caracteres inválidos",
+            f"GitHub owner '{owner}' contiene caracteres invalidos",
             provider="github",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
@@ -263,17 +263,17 @@ def _validate_github_config(config: Dict[str, Any]) -> Dict[str, Any]:
     repo = validated["repo"]
     if not re.match(r'^[a-zA-Z0-9._-]+$', repo):
         raise create_config_error(
-            f"GitHub repo '{repo}' contiene caracteres inválidos",
+            f"GitHub repo '{repo}' contiene caracteres invalidos",
             provider="github",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
     
-    # Validar branch si está presente
+    # Validar branch si esta presente
     if "branch" in validated:
         branch = validated["branch"]
         if not re.match(r'^[a-zA-Z0-9._/-]+$', branch):
             raise create_config_error(
-                f"GitHub branch '{branch}' contiene caracteres inválidos",
+                f"GitHub branch '{branch}' contiene caracteres invalidos",
                 provider="github",
                 error_code=ErrorCodes.INVALID_CONFIG_TYPE
             )
@@ -282,10 +282,10 @@ def _validate_github_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_gitlab_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validaciones específicas para configuración de GitLab"""
+    """Validaciones especificas para configuracion de GitLab"""
     validated = config.copy()
     
-    # Validar base_url si está presente
+    # Validar base_url si esta presente
     if "base_url" in validated:
         base_url = validated["base_url"]
         if not base_url.startswith(("http://", "https://")):
@@ -302,12 +302,12 @@ def _validate_gitlab_config(config: Dict[str, Any]) -> Dict[str, Any]:
     project_path = validated["project_path"]
     if not re.match(r'^[a-zA-Z0-9._/-]+$', project_path):
         raise create_config_error(
-            f"GitLab project_path '{project_path}' contiene caracteres inválidos",
+            f"GitLab project_path '{project_path}' contiene caracteres invalidos",
             provider="gitlab",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
     
-    # Validar token (debe ser string no vacío)
+    # Validar token (debe ser string no vacio)
     token = validated["token"]
     if len(token) < 8:
         logger.warning("GitLab token seems too short", extra={
@@ -318,14 +318,14 @@ def _validate_gitlab_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_azure_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validaciones específicas para configuración de Azure DevOps"""
+    """Validaciones especificas para configuracion de Azure DevOps"""
     validated = config.copy()
     
     # Validar organization
     org = validated["organization"]
     if not re.match(r'^[a-zA-Z0-9-_]+$', org):
         raise create_config_error(
-            f"Azure organization '{org}' contiene caracteres inválidos",
+            f"Azure organization '{org}' contiene caracteres invalidos",
             provider="azure",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
@@ -334,7 +334,7 @@ def _validate_azure_config(config: Dict[str, Any]) -> Dict[str, Any]:
     project = validated["project"]
     if not re.match(r'^[a-zA-Z0-9._\s-]+$', project):
         raise create_config_error(
-            f"Azure project '{project}' contiene caracteres inválidos",
+            f"Azure project '{project}' contiene caracteres invalidos",
             provider="azure",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
@@ -343,16 +343,16 @@ def _validate_azure_config(config: Dict[str, Any]) -> Dict[str, Any]:
     repo = validated["repository"]
     if not re.match(r'^[a-zA-Z0-9._-]+$', repo):
         raise create_config_error(
-            f"Azure repository '{repo}' contiene caracteres inválidos",
+            f"Azure repository '{repo}' contiene caracteres invalidos",
             provider="azure",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
     
-    # Validar branch format si está presente
+    # Validar branch format si esta presente
     if "branch" in validated:
         branch = validated["branch"]
         if not branch.startswith("refs/heads/") and not branch.startswith("refs/tags/"):
-            # Auto-corregir branch común
+            # Auto-corregir branch comun
             if not branch.startswith("refs/"):
                 validated["branch"] = f"refs/heads/{branch}"
                 logger.debug(f"Auto-corrected Azure branch format: {branch} -> {validated['branch']}")
@@ -361,14 +361,14 @@ def _validate_azure_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_svn_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Validaciones específicas para configuración de SVN"""
+    """Validaciones especificas para configuracion de SVN"""
     validated = config.copy()
     
     # Validar repo_url
     repo_url = validated["repo_url"]
     if not repo_url.startswith(("http://", "https://", "svn://", "file://")):
         raise create_config_error(
-            "SVN repo_url debe incluir protocolo válido (http://, https://, svn://, file://)",
+            "SVN repo_url debe incluir protocolo valido (http://, https://, svn://, file://)",
             provider="svn",
             error_code=ErrorCodes.INVALID_CONFIG_TYPE
         )
@@ -376,13 +376,13 @@ def _validate_svn_config(config: Dict[str, Any]) -> Dict[str, Any]:
     # Normalizar URL (remover trailing slash)
     validated["repo_url"] = repo_url.rstrip("/")
     
-    # Validar credenciales si están presentes
+    # Validar credenciales si estan presentes
     if "username" in validated and not validated["username"]:
-        # Remover username vacío
+        # Remover username vacio
         del validated["username"]
     
     if "password" in validated and not validated["password"]:
-        # Remover password vacío
+        # Remover password vacio
         del validated["password"]
     
     # Advertir sobre credenciales en texto plano
@@ -402,9 +402,9 @@ def _validate_svn_config(config: Dict[str, Any]) -> Dict[str, Any]:
 @lru_cache(maxsize=1000)
 def validate_file_path(path: str) -> str:
     """
-    Valida y sanitiza ruta de archivo con protección avanzada contra path traversal.
+    Valida y sanitiza ruta de archivo con proteccion avanzada contra path traversal.
     
-    Implementa múltiples capas de seguridad y usa caching para performance.
+    Implementa multiples capas de seguridad y usa caching para performance.
     
     Args:
         path: Ruta del archivo a validar
@@ -414,7 +414,7 @@ def validate_file_path(path: str) -> str:
         
     Raises:
         SecurityError: Si se detecta un ataque
-        ValidationError: Si la ruta es inválida
+        ValidationError: Si la ruta es invalida
         
     Example:
         >>> validate_file_path("src/main.py")
@@ -429,7 +429,7 @@ def validate_file_path(path: str) -> str:
     print(f"******************************************")
     
 
-    # Validación básica de tipo y presencia
+    # Validacion basica de tipo y presencia
     if not path or not isinstance(path, str):
         raise create_validation_error(
             "La ruta del archivo es requerida y debe ser una cadena",
@@ -442,7 +442,7 @@ def validate_file_path(path: str) -> str:
     if len(path) > MAX_PATH_LENGTH:
         log_security_event("path_too_long", f"Path length: {len(path)}", "WARNING")
         raise create_validation_error(
-            f"Ruta demasiado larga. Máximo: {MAX_PATH_LENGTH} caracteres",
+            f"Ruta demasiado larga. Maximo: {MAX_PATH_LENGTH} caracteres",
             field_name="path",
             received_value=f"{path[:50]}..." if len(path) > 50 else path,
             error_code=ErrorCodes.PATH_TOO_LONG
@@ -451,18 +451,18 @@ def validate_file_path(path: str) -> str:
     print(f"******************************************{path}")
     print(f"******************************************")
     
-    # Sanitización básica
+    # Sanitizacion basica
     clean_path = path.strip().strip('/')
     clean_path = unicodedata.normalize('NFC', clean_path)
     if not clean_path:
         raise create_validation_error(
-            "La ruta del archivo no puede estar vacía después de sanitización",
+            "La ruta del archivo no puede estar vacia despues de sanitizacion",
             field_name="path",
             received_value=path,
             error_code=ErrorCodes.EMPTY_PATH
         )
     
-    # Detección avanzada de path traversal
+    # Deteccion avanzada de path traversal
     _detect_path_traversal(clean_path, path)
     
     # Validar caracteres de control
@@ -481,7 +481,7 @@ def validate_file_path(path: str) -> str:
     # Normalizar separadores
     normalized_path = clean_path.replace('\\', '/')
     
-    # Validación final de componentes de ruta
+    # Validacion final de componentes de ruta
     _validate_path_components(normalized_path)
     
     logger.debug(f"Path validated", extra={
@@ -503,13 +503,13 @@ def _detect_path_traversal(clean_path: str, original_path: str) -> None:
                 "ERROR"
             )
             raise create_security_error(
-                f"Ruta contiene patrón peligroso",
+                f"Ruta contiene patron peligroso",
                 attack_type="path_traversal",
                 detected_pattern=pattern,
                 error_code=ErrorCodes.PATH_TRAVERSAL
             )
     
-    # Detección adicional de encodings
+    # Deteccion adicional de encodings
     decoded_variants = [
         urllib.parse.unquote(clean_path),  # URL decoding
         clean_path.encode().decode('unicode_escape', errors='ignore'),  # Unicode escape
@@ -542,7 +542,7 @@ def _validate_control_characters(path: str) -> None:
                 "WARNING"
             )
             raise create_security_error(
-                "Ruta contiene caracteres de control inválidos",
+                "Ruta contiene caracteres de control invalidos",
                 attack_type="control_character_injection",
                 detected_pattern=repr(char),
                 error_code=ErrorCodes.INVALID_PATH
@@ -568,7 +568,7 @@ def _validate_path_components(path: str) -> None:
         for char in component:
             category = unicodedata.category(char)
 
-            # Bloquear caracteres de control (categoría C)
+            # Bloquear caracteres de control (categoria C)
             if category.startswith("C"):
                 log_security_event(
                     "invalid_unicode_control",
@@ -576,7 +576,7 @@ def _validate_path_components(path: str) -> None:
                     level="WARNING"
                 )
                 raise create_security_error(
-                    f"Componente contiene caracteres de control inválidos: {component}",
+                    f"Componente contiene caracteres de control invalidos: {component}",
                     attack_type="invalid_unicode_control",
                     detected_pattern=repr(char),
                     error_code=ErrorCodes.INVALID_PATH
@@ -590,7 +590,7 @@ def _validate_path_components(path: str) -> None:
                     level="WARNING"
                 )
                 raise create_security_error(
-                    f"Componente contiene separadores invisibles inválidos: {component}",
+                    f"Componente contiene separadores invisibles invalidos: {component}",
                     attack_type="invalid_unicode_separator",
                     detected_pattern=repr(char),
                     error_code=ErrorCodes.INVALID_PATH
@@ -598,19 +598,19 @@ def _validate_path_components(path: str) -> None:
 
 
 # ========================================
-# VALIDADORES DE LÍMITES
+# VALIDADORES DE LIMITES
 # ========================================
 
 def validate_file_size(size_bytes: int, filename: Optional[str] = None) -> None:
     """
-    Valida que el tamaño del archivo esté dentro de límites.
+    Valida que el tamano del archivo este dentro de limites.
     
     Args:
-        size_bytes: Tamaño en bytes
+        size_bytes: Tamano en bytes
         filename: Nombre del archivo (opcional, para contexto)
         
     Raises:
-        FileTooLargeError: Si excede el límite
+        FileTooLargeError: Si excede el limite
     """
     if size_bytes > MAX_FILE_SIZE_BYTES:
         from app.core.exceptions import FileTooLargeError
@@ -618,7 +618,7 @@ def validate_file_size(size_bytes: int, filename: Optional[str] = None) -> None:
         max_mb = MAX_FILE_SIZE_BYTES / 1024 / 1024
         
         raise FileTooLargeError(
-            f"Archivo de {size_mb:.1f}MB excede límite de {max_mb}MB",
+            f"Archivo de {size_mb:.1f}MB excede limite de {max_mb}MB",
             error_code=ErrorCodes.FILE_TOO_LARGE,
             file_size=size_bytes,
             max_size=MAX_FILE_SIZE_BYTES,
@@ -631,14 +631,14 @@ def validate_structure_size(node_count: int) -> None:
     Valida que la estructura no sea demasiado grande.
     
     Args:
-        node_count: Número total de nodos
+        node_count: Numero total de nodos
         
     Raises:
-        ValidationError: Si excede el límite
+        ValidationError: Si excede el limite
     """
     if node_count > MAX_NODES_STRUCTURE:
         raise create_validation_error(
-            f"Estructura demasiado grande: {node_count} nodos (máximo: {MAX_NODES_STRUCTURE})",
+            f"Estructura demasiado grande: {node_count} nodos (maximo: {MAX_NODES_STRUCTURE})",
             field_name="structure_size",
             received_value=node_count,
             error_code=ErrorCodes.STRUCTURE_TOO_LARGE
@@ -660,8 +660,8 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
         Tuple[str, str, Dict, Optional[str]]: (operation, provider, config, path)
         
     Raises:
-        ValidationError: Si algún dato es inválido
-        ConfigurationError: Si la configuración es inválida
+        ValidationError: Si algun dato es invalido
+        ConfigurationError: Si la configuracion es invalida
         SecurityError: Si se detecta un ataque
         
     Example:
@@ -681,7 +681,7 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     print(data)
     print("DATA***********************************************************************")
 
-    # Validar estructura básica
+    # Validar estructura basica
     if not isinstance(data, dict):
         raise create_validation_error(
             "Los datos del request deben ser un diccionario",
@@ -694,7 +694,7 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     operation = validate_operation(data.get("operation"))
     provider = validate_provider(data.get("provider"))
     
-    # Validar configuración
+    # Validar configuracion
     config_data = data.get("config")
     if not config_data:
         raise create_validation_error(
@@ -706,7 +706,7 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     
     config = validate_config(provider, config_data)
     
-    # Validar path si la operación lo requiere
+    # Validar path si la operacion lo requiere
     path = None
     if operation == Operations.DOWNLOAD_FILE:
         path_data = data.get("path")
@@ -729,13 +729,74 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     
     return operation, provider, config, path
 
-def fix_encoding(text):
-    return text.encode('latin1').decode('utf-8')
+
+def fix_encoding(text: str) -> str:
+    """
+    Corrige problemas de encoding especificos encontrados en paths.
+    
+    Args:
+        text: Texto que puede tener problemas de encoding
+        
+    Returns:
+        str: Texto con encoding corregido
+        
+    Example:
+        >>> fix_encoding("Documentacion/DiseÃ±o detallado/file.docx")
+        'Documentacion/Diseño detallado/file.docx'
+    """
+    if not isinstance(text, str):
+        return str(text)
+    
+    if not text:
+        return text
+    
+    # Mapeo directo de caracteres problematicos conocidos
+    replacements = {
+        'DiseÃ±o': 'Diseño',
+        'DiseÃ±oDetallado': 'DiseñoDetallado',
+        'Ã±': 'ñ',
+        'Ã¡': 'á',
+        'Ã©': 'é', 
+        'Ã­': 'í',
+        'Ã³': 'ó',
+        'Ãº': 'ú',
+        'Ã¼': 'ü'
+    }
+    
+    # Aplicar reemplazos
+    result = text
+    for bad, good in replacements.items():
+        if bad in result:
+            result = result.replace(bad, good)
+            logger.debug(f"Fixed encoding: {repr(bad)} -> {good} in path")
+    
+    # Verificar si la funcion original funcionaria para el texto restante
+    if result == text and 'Ã' not in text:
+        try:
+            if all(ord(c) < 256 for c in text):
+                decoded = text.encode('latin1').decode('utf-8')
+                decoded.encode('utf-8')
+                return decoded
+        except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):
+            pass
+    
+    return result
+
 
 # ========================================
-# UTILIDADES DE VALIDACIÓN
+# UTILIDADES DE VALIDACION
 # ========================================
 
+def is_safe_filename(filename: str) -> bool:
+    """
+    Verifica si un nombre de archivo es seguro.
+    
+    Args:
+        filename: Nombre del archivo
+        
+    Returns:
+        bool: True si es seguro
+    """
 def is_safe_filename(filename: str) -> bool:
     """
     Verifica si un nombre de archivo es seguro.
@@ -749,9 +810,21 @@ def is_safe_filename(filename: str) -> bool:
     if not filename or len(filename) > 255:
         return False
     
-    # Verificar caracteres peligrosos
-    dangerous_chars = set(DANGEROUS_PATH_PATTERNS) - {'.'}  # Punto está permitido
-    if any(char in filename for char in dangerous_chars):
+    # Definir caracteres permitidos de forma explicita y segura
+    letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    digits = '0123456789'
+    symbols = ' -._'
+    spanish = 'ñáéíóúüÑÁÉÍÓÚÜ'
+    
+    allowed_chars = letters + digits + symbols + spanish
+    
+    # Verificar cada caracter individualmente
+    for char in filename:
+        if char not in allowed_chars:
+            return False
+    
+    # Verificar que no empiece o termine con punto
+    if filename.startswith('.') or filename.endswith('.'):
         return False
     
     # Verificar nombres reservados (Windows)
@@ -763,6 +836,14 @@ def is_safe_filename(filename: str) -> bool:
     
     base_name = filename.split('.')[0].upper()
     if base_name in reserved_names:
+        return False
+    
+    # Verificar que no tenga multiples espacios consecutivos
+    if '  ' in filename:
+        return False
+    
+    # Verificar que no tenga solo espacios
+    if filename.strip() == '':
         return False
     
     return True
@@ -791,7 +872,7 @@ def sanitize_filename(filename: str) -> str:
     
     sanitized = ''.join(safe_chars)
     
-    # Asegurar que no esté vacío
+    # Asegurar que no este vacio
     if not sanitized:
         sanitized = "sanitized_file"
     
@@ -814,7 +895,7 @@ def clear_validation_cache() -> None:
 
 
 def get_validation_cache_info() -> Dict[str, Any]:
-    """Obtiene información del cache de validaciones"""
+    """Obtiene informacion del cache de validaciones"""
     return {
         "file_path_cache": validate_file_path.cache_info()._asdict()
     }

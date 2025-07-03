@@ -20,6 +20,7 @@ Version: 2.0.0
 import math
 import time
 import hashlib
+import base64
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 
@@ -101,7 +102,7 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
         # Post-procesar archivo descargado
         processed_file = _process_downloaded_file(file_data, safe_path, provider)
         
-        logger.info(f'filename -> ${type(processed_file['filename'])}')
+        logger.info(f'filename -> {type(processed_file["filename"])}')
         # Crear respuesta optimizada
         response = create_file_response(
             content=processed_file["content"],
@@ -112,16 +113,18 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
         # Métricas finales
         _log_download_metrics(processed_file, provider)
 
-        print("processed_file************************************************")
-        print(processed_file)
-        print("processed_file************************************************")
+        logger.debug("processed_file details", extra={
+            "filename": processed_file["filename"],
+            "content_type": processed_file["content_type"],
+            "file_size": processed_file["file_size"]
+        })
         
         logger.info("File download completed successfully", extra={
             "provider": provider,
             "path": safe_path,
             "file_size": len(processed_file["content"]),
             "download_content_type": processed_file["content_type"],
-            "downloaded_filename": processed_file["filename"]  # <- Ajuste aquí
+            "downloaded_filename": processed_file["filename"]
         })
         
         return response
@@ -309,6 +312,14 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
         # Llamada al manager del proveedor
         content = manager.download_file(path)
         
+        # 🔍 DEBUG: Información del contenido recibido
+        logger.debug("Content received from manager", extra={
+            "provider": provider,
+            "path": path,
+            "content_type": type(content).__name__,
+            "content_length": len(content) if content else None
+        })
+        
         download_duration = time.time() - start_time
         
         # Validaciones básicas del contenido
@@ -318,23 +329,62 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
                 field_name="path",
                 received_value=path
             )
-        '''SourceCodeError(
-                f"Manager retornó contenido None para: {path}",
-                provider=provider
-            )'''
-            
         
+        # ✅ CONVERSIÓN CORREGIDA DE CONTENIDO
         if not isinstance(content, bytes):
             logger.warning("Content is not bytes, converting", extra={
                 "provider": provider,
                 "path": path,
                 "content_type": type(content).__name__
             })
-            # Intentar convertir a bytes
+            
             if isinstance(content, str):
-                content = content.encode('utf-8')
+                # Para archivos binarios (.docx, .pdf, etc.), el contenido puede venir como base64
+                filename = path.split('/')[-1].lower()
+                
+                try:
+                    # Intentar decodificar como base64 primero
+                    content = base64.b64decode(content)
+                    logger.info("Successfully decoded base64 content", extra={
+                        "provider": provider,
+                        "path": path,
+                        "decoded_size": len(content)
+                    })
+                except Exception as base64_error:
+                    # Si falla base64, intentar como texto UTF-8 solo para archivos de texto
+                    text_extensions = ['.txt', '.py', '.js', '.json', '.md', '.yml', '.yaml', '.xml', '.csv', '.log']
+                    
+                    if any(ext in filename for ext in text_extensions):
+                        try:
+                            content = content.encode('utf-8')
+                            logger.info("Encoded as UTF-8 text file", extra={
+                                "provider": provider,
+                                "path": path,
+                                "encoded_size": len(content)
+                            })
+                        except UnicodeEncodeError as utf_error:
+                            raise ValidationError(
+                                f"No se pudo procesar el archivo de texto: {filename}. Error: {str(utf_error)}"
+                            )
+                    else:
+                        # Para archivos binarios, esto es un error
+                        raise ValidationError(
+                            f"Archivo binario recibido como string y no se pudo decodificar: {filename}. "
+                            f"Base64 error: {str(base64_error)}"
+                        )
             else:
-                content = str(content).encode('utf-8')
+                # Para otros tipos, convertir a string y luego a bytes
+                try:
+                    content = str(content).encode('utf-8')
+                    logger.info("Converted unknown type to bytes", extra={
+                        "provider": provider,
+                        "path": path,
+                        "original_type": type(content).__name__
+                    })
+                except Exception as convert_error:
+                    raise ValidationError(
+                        f"No se pudo convertir el contenido a bytes: {str(convert_error)}"
+                    )
         
         file_size = len(content)
         
@@ -396,11 +446,7 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
                 provider=provider
             )
         else:
-            raise ValidationError(e) 
-        '''SourceCodeError(
-                f"Error descargando archivo: {str(e)}",
-                provider=provider
-            )'''
+            raise ValidationError(str(e))
 
 
 def _process_downloaded_file(file_data: Dict[str, Any], path: str, provider: str) -> Dict[str, Any]:
@@ -740,7 +786,7 @@ def _log_download_metrics(processed_file: Dict[str, Any], provider: str) -> None
 
 def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
     """
-    Maneja DOWNLOAD_FILE para testing local con output formateado.
+    Maneja DOWNLOAD_FILE para testing local con output formateado y debug completo.
     
     Args:
         manager: Manager del proveedor
@@ -756,10 +802,17 @@ def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
         # Usar el manejador principal
         response = handle_download_file(manager, path, provider)
         
-        # Extraer información de la respuesta
-        file_size = len(response.get("body", ""))
+        # 🔍 DEBUG: Mostrar estructura completa de la respuesta
+        print("\n🔍 RESPONSE STRUCTURE:")
+        print(f"Keys: {list(response.keys())}")
+        print(f"StatusCode: {response.get('statusCode', 'N/A')}")
+        print(f"isBase64Encoded: {response.get('isBase64Encoded', 'N/A')}")
+        
+        # Obtener información de la respuesta
+        response_body = response.get("body", "")
         headers = response.get("headers", {})
         filename = path.split('/')[-1]
+        is_base64 = response.get("isBase64Encoded", False)
         
         # Output formateado para consola
         print("\n" + "="*60)
@@ -768,17 +821,46 @@ def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
         print(f"🔧 Proveedor: {provider}")
         print(f"📂 Ruta: {path}")
         print(f"📄 Archivo: {filename}")
-        print(f"📊 Tamaño: {file_size:,} bytes ({file_size / 1024:.1f} KB)")
         print(f"🏷️ Tipo: {headers.get('Content-Type', 'unknown')}")
-        print(f"📦 Codificación: {'Base64' if response.get('isBase64Encoded') else 'Plain'}")
-        print(f"response: ${response}")
+        print(f"📦 Codificación: {'Base64' if is_base64 else 'Plain'}")
         
-        # Mostrar preview del contenido si es texto
-        if headers.get('Content-Type', '').startswith('text/') and file_size < 10000:
+        # 🔍 DEBUG DEL BASE64
+        print(f"\n🔍 DEBUG DE CONTENIDO:")
+        print(f"📝 Response tiene 'body': {bool(response_body)}")
+        print(f"📏 Longitud del body: {len(response_body) if response_body else 0}")
+        
+        if response_body:
+            print(f"📊 Tamaño del body: {len(response_body):,} bytes ({len(response_body) / 1024:.1f} KB)")
+            print(f"🔍 Primeros 100 caracteres del body:")
+            print(repr(response_body[:100]))
+            
+            if is_base64:
+                try:
+                    decoded = base64.b64decode(response_body)
+                    print(f"✅ Base64 válido, archivo decodificado: {len(decoded)} bytes")
+                    print(f"🔍 Primeros 20 bytes del archivo: {decoded[:20]}")
+                    
+                    # Verificar que es realmente un archivo .docx (debe empezar con PK)
+                    if decoded.startswith(b'PK'):
+                        print("✅ Archivo .docx válido (ZIP signature detectada)")
+                    else:
+                        print("⚠️ El archivo no tiene la signature esperada de .docx")
+                        
+                except Exception as e:
+                    print(f"❌ Error decodificando base64: {e}")
+            else:
+                print("⚠️ El contenido NO está marcado como base64")
+        else:
+            print("❌ No hay contenido en el body de la respuesta")
+        
+        # Mostrar preview del contenido si es texto pequeño
+        if headers.get('Content-Type', '').startswith('text/') and response_body and len(response_body) < 10000:
             try:
-                import base64
-                decoded_content = base64.b64decode(response.get("body", ""))
-                text_content = decoded_content.decode('utf-8', errors='replace')
+                if is_base64:
+                    decoded_content = base64.b64decode(response_body)
+                    text_content = decoded_content.decode('utf-8', errors='replace')
+                else:
+                    text_content = response_body
                 
                 print("\n" + "="*60)
                 print("👀 PREVIEW DEL CONTENIDO (primeros 500 caracteres)")
@@ -796,7 +878,6 @@ def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
         logger.exception("Error in local download handling")
         print(f"\n❌ Error: {str(e)}")
         print(f"🔧 Tipo: {type(e).__name__}")
-
 
 
 # Inicialización del módulo

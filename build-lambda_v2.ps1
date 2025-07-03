@@ -56,6 +56,328 @@ function Remove-DirectorySafe {
     }
 }
 
+# NUEVA FUNCIÓN: Separar paquete en función y layer
+function Split-LambdaPackage {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$BuildDir,
+        [Parameter(Mandatory=$true)]
+        [string]$PublicDir,
+        [Parameter(Mandatory=$true)]
+        [string]$OriginalZipName
+    )
+    
+    Write-Log -Message "SEPARACION: Iniciando separacion automatica en funcion y layer" -Level "INFO"
+    
+    # Inicializar variables para manejo de errores
+    $LayerTempDir = $null
+    $FunctionTempDir = $null
+    
+    try {
+        # Crear directorios temporales
+        $LayerTempDir = Join-Path -Path $PublicDir -ChildPath "layer-temp"
+        $FunctionTempDir = Join-Path -Path $PublicDir -ChildPath "function-temp"
+        
+        # Limpiar si existen
+        Remove-DirectorySafe -Path $LayerTempDir
+        Remove-DirectorySafe -Path $FunctionTempDir
+        
+        # Crear directorios
+        New-Item -ItemType Directory -Path $LayerTempDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $FunctionTempDir -Force | Out-Null
+        
+        # Crear estructura correcta para layer
+        $LayerPythonDir = Join-Path -Path $LayerTempDir -ChildPath "python"
+        $LayerLibDir = Join-Path -Path $LayerPythonDir -ChildPath "lib"
+        $LayerSitePackagesDir = Join-Path -Path $LayerLibDir -ChildPath "python3.9"
+        $LayerSitePackagesDir = Join-Path -Path $LayerSitePackagesDir -ChildPath "site-packages"
+        
+        New-Item -ItemType Directory -Path $LayerSitePackagesDir -Force | Out-Null
+        
+        # Patrones de dependencias que van al layer
+        $dependencyPatterns = @(
+            'pandas*', 'numpy*', 'boto3*', 'botocore*', 'requests*',
+            'pydantic*', 'openpyxl*', 'urllib3*', 's3transfer*',
+            'python_dateutil*', 'pytz*', 'six*', 'certifi*',
+            'jmespath*', 'et_xmlfile*', 'typing_extensions*',
+            'charset_normalizer*', 'idna*', 'xlsxwriter*'
+        )
+        
+        # Obtener contenido del directorio build
+        $buildItems = Get-ChildItem -Path $BuildDir -ErrorAction SilentlyContinue
+        $layerItemCount = 0
+        $functionItemCount = 0
+        
+        if ($buildItems) {
+            foreach ($item in $buildItems) {
+                if ($item -and $item.Name) {
+                    $isLayerItem = $false
+                    
+                    # Verificar si es una dependencia
+                    foreach ($pattern in $dependencyPatterns) {
+                        if ($item.Name -like $pattern) {
+                            $isLayerItem = $true
+                            break
+                        }
+                    }
+                    
+                    # Verificar si es un directorio de dependencia típico
+                    if (-not $isLayerItem -and $item.PSIsContainer) {
+                        $name = $item.Name.ToLower()
+                        if ($name -match '.*\.dist-info$' -or $name -match '.*\.egg-info$' -or 
+                            $name -match '^_.*' -or $name -match '.*-.*-.*' -or
+                            ($name.Length -gt 10 -and $name -notmatch '^[a-z][a-z0-9_]*$')) {
+                            $isLayerItem = $true
+                        }
+                    }
+                    
+                    try {
+                        if ($isLayerItem) {
+                            # Copiar al layer
+                            $destPath = Join-Path -Path $LayerSitePackagesDir -ChildPath $item.Name
+                            if ($item.PSIsContainer) {
+                                Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+                            } else {
+                                Copy-Item -Path $item.FullName -Destination $destPath -Force
+                            }
+                            $layerItemCount++
+                        } else {
+                            # Copiar a la función
+                            $destPath = Join-Path -Path $FunctionTempDir -ChildPath $item.Name
+                            if ($item.PSIsContainer) {
+                                Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+                            } else {
+                                Copy-Item -Path $item.FullName -Destination $destPath -Force
+                            }
+                            $functionItemCount++
+                        }
+                    }
+                    catch {
+                        Write-Log -Message "ADVERTENCIA: No se pudo procesar item: $($item.Name)" -Level "WARNING"
+                    }
+                }
+            }
+        }
+        
+        Write-Log -Message "SEPARACION: $layerItemCount items para layer, $functionItemCount items para funcion" -Level "INFO"
+        
+        # Verificar que tenemos contenido
+        if ($layerItemCount -eq 0 -and $functionItemCount -eq 0) {
+            throw "No se encontro contenido para separar"
+        }
+        
+        # Crear ZIPs
+        $functionZipName = "function.zip"
+        $layerZipName = "dependencies-layer.zip"
+        
+        $functionZipPath = Join-Path -Path $PublicDir -ChildPath $functionZipName
+        $layerZipPath = Join-Path -Path $PublicDir -ChildPath $layerZipName
+        
+        # Crear ZIP de función
+        if ($functionItemCount -gt 0) {
+            try {
+                [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                    $FunctionTempDir,
+                    $functionZipPath,
+                    [System.IO.Compression.CompressionLevel]::Optimal,
+                    $false
+                )
+                Write-Log -Message "SEPARACION: function.zip creado exitosamente" -Level "INFO"
+            }
+            catch {
+                Write-Log -Message "ERROR: No se pudo crear function.zip: $($_.Exception.Message)" -Level "ERROR"
+            }
+        } else {
+            Write-Log -Message "ADVERTENCIA: No hay contenido para function.zip" -Level "WARNING"
+        }
+        
+        # Crear ZIP de layer
+        if ($layerItemCount -gt 0) {
+            try {
+                [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                    $LayerTempDir,
+                    $layerZipPath,
+                    [System.IO.Compression.CompressionLevel]::Optimal,
+                    $false
+                )
+                Write-Log -Message "SEPARACION: dependencies-layer.zip creado exitosamente" -Level "INFO"
+            }
+            catch {
+                Write-Log -Message "ERROR: No se pudo crear dependencies-layer.zip: $($_.Exception.Message)" -Level "ERROR"
+            }
+        } else {
+            Write-Log -Message "ADVERTENCIA: No hay contenido para dependencies-layer.zip" -Level "WARNING"
+        }
+        
+        # Obtener tamaños
+        $functionSizeMB = 0.0
+        $layerSizeMB = 0.0
+        
+        if (Test-Path $functionZipPath) {
+            $functionInfo = Get-Item -Path $functionZipPath
+            $functionSizeMB = [Math]::Round(($functionInfo.Length / 1MB), 1)
+        }
+        
+        if (Test-Path $layerZipPath) {
+            $layerInfo = Get-Item -Path $layerZipPath
+            $layerSizeMB = [Math]::Round(($layerInfo.Length / 1MB), 1)
+        }
+        
+        # Limpiar directorios temporales
+        Remove-DirectorySafe -Path $LayerTempDir
+        Remove-DirectorySafe -Path $FunctionTempDir
+        
+        # Verificar que al menos uno de los ZIPs se creó correctamente
+        $functionExists = Test-Path $functionZipPath
+        $layerExists = Test-Path $layerZipPath
+        
+        if (-not $functionExists -and -not $layerExists) {
+            throw "No se pudo crear ninguno de los archivos ZIP"
+        }
+        
+        return @{
+            Success = $true
+            FunctionZip = $functionZipPath
+            LayerZip = $layerZipPath
+            FunctionSizeMB = $functionSizeMB
+            LayerSizeMB = $layerSizeMB
+        }
+    }
+    catch {
+        Write-Log -Message "ERROR: Error en separacion: $($_.Exception.Message)" -Level "ERROR"
+        
+        # Limpiar en caso de error (solo si las variables están inicializadas)
+        if (-not [string]::IsNullOrEmpty($LayerTempDir)) {
+            Remove-DirectorySafe -Path $LayerTempDir
+        }
+        if (-not [string]::IsNullOrEmpty($FunctionTempDir)) {
+            Remove-DirectorySafe -Path $FunctionTempDir
+        }
+        
+        return @{
+            Success = $false
+            Error = $_.Exception.Message
+        }
+    }
+}
+
+# NUEVA FUNCIÓN: Generar instrucciones de deploy
+function Generate-DeployInstructions {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PublicDir,
+        [Parameter(Mandatory=$true)]
+        [string]$FunctionZipName,
+        [Parameter(Mandatory=$true)]
+        [string]$LayerZipName,
+        [Parameter(Mandatory=$true)]
+        [decimal]$FunctionSizeMB,
+        [Parameter(Mandatory=$true)]
+        [decimal]$LayerSizeMB
+    )
+    
+    $instructionsContent = @"
+========================================
+   INSTRUCCIONES DE DEPLOY - AWS LAMBDA
+========================================
+
+ARCHIVOS GENERADOS:
+- $FunctionZipName ($FunctionSizeMB MB) - Código de tu aplicación  
+- $LayerZipName ($LayerSizeMB MB) - Dependencias Python
+
+========================================
+OPCIÓN 1: CONSOLA AWS (Interfaz Web)
+========================================
+
+PASO 1: CREAR LAYER
+-------------------
+1. Ir a: https://console.aws.amazon.com/lambda/
+2. En el menú izquierdo -> "Layers" 
+3. Clic en "Create layer"
+4. Completar formulario:
+   * Name: mi-proyecto-dependencies
+   * Description: Dependencias Python para mi proyecto
+   * Upload: Seleccionar "$LayerZipName"
+   * Compatible runtimes: Python 3.9, Python 3.10, Python 3.11
+   * Compatible architectures: x86_64
+5. Clic "Create"
+6. COPIAR EL ARN que aparece (lo necesitarás en el paso 2)
+   Ejemplo: arn:aws:lambda:us-east-1:123456789012:layer:mi-proyecto-dependencies:1
+
+PASO 2: ACTUALIZAR FUNCIÓN LAMBDA
+---------------------------------
+1. Ir a: https://console.aws.amazon.com/lambda/
+2. En "Functions" -> Seleccionar tu función
+3. En la pestaña "Code":
+   * Clic "Upload from" -> ".zip file"
+   * Seleccionar "$FunctionZipName"
+   * Clic "Save"
+4. Bajar hasta la sección "Layers":
+   * Clic "Add a layer"
+   * Seleccionar "Custom layers"
+   * Pegar el ARN del PASO 1
+   * Version: 1
+   * Clic "Add"
+5. Deploy completado
+
+========================================
+OPCIÓN 2: AWS CLI (Línea de Comandos)
+========================================
+
+PASO 1: CREAR LAYER
+-------------------
+aws lambda publish-layer-version \
+    --layer-name "mi-proyecto-dependencies" \
+    --description "Dependencias Python para mi proyecto" \
+    --zip-file fileb://$LayerZipName \
+    --compatible-runtimes python3.9 python3.10 python3.11 \
+    --compatible-architectures x86_64
+
+PASO 2: ACTUALIZAR FUNCIÓN
+--------------------------
+# Actualizar código
+aws lambda update-function-code \
+    --function-name "TU_FUNCION_AQUI" \
+    --zip-file fileb://$FunctionZipName
+
+# Agregar layer (usar ARN del paso 1)
+aws lambda update-function-configuration \
+    --function-name "TU_FUNCION_AQUI" \
+    --layers arn:aws:lambda:REGION:ACCOUNT:layer:mi-proyecto-dependencies:1
+
+========================================
+NOTAS IMPORTANTES
+========================================
+
+ACTUALIZACIONES FUTURAS:
+- Cambios en código -> Solo subir $FunctionZipName (PASO 2)
+- Cambios en dependencias -> Crear nueva versión del layer
+
+LÍMITES AWS:
+- Layer: 250MB descomprimido máximo
+- Función + Layers: 250MB total descomprimido
+- Máximo 5 layers por función
+
+BENEFICIOS:
+- Deploy de código 10x más rápido (solo $FunctionSizeMB MB vs 50+ MB)
+- Layer reutilizable para múltiples funciones
+- Versionado independiente de dependencias vs código
+
+========================================
+"@
+
+    try {
+        $instructionsPath = Join-Path -Path $PublicDir -ChildPath "deploy-instructions.txt"
+        $instructionsContent | Out-File -FilePath $instructionsPath -Encoding UTF8
+        Write-Log -Message "INSTRUCCIONES: Archivo generado en: deploy-instructions.txt" -Level "INFO"
+        return $instructionsPath
+    }
+    catch {
+        Write-Log -Message "ADVERTENCIA: No se pudo generar archivo de instrucciones: $($_.Exception.Message)" -Level "WARNING"
+        return $null
+    }
+}
+
 try {
     Write-Log -Message "INICIANDO: Preparacion del paquete Lambda" -Level "INFO"
 
@@ -526,7 +848,7 @@ try {
         throw "ZIP no valido: $($_.Exception.Message)"
     }
 
-    # 9. Verificar tamaño y dar recomendaciones específicas
+    # 9. Verificar tamaño y aplicar separación automática si es necesario
     if (-not (Test-Path $zipPath)) {
         throw "No se puede verificar el tamaño: el archivo ZIP no existe"
     }
@@ -537,23 +859,55 @@ try {
     Write-Log -Message "TAMANO: ZIP final de $zipSizeMB MB" -Level "INFO"
     
     if ($zipSizeMB -gt 50) {
-        Write-Log -Message "PROBLEMA: ZIP supera 50MB ($zipSizeMB MB) - Limite de AWS Lambda Console" -Level "WARNING"
-        Write-Log -Message "========================================" -Level "WARNING"
-        Write-Log -Message "SOLUCIONES RECOMENDADAS:" -Level "WARNING"
-        Write-Log -Message "" -Level "INFO"
-        Write-Log -Message "OPCION 1 - AWS CLI (MAS FACIL):" -Level "WARNING"
-        Write-Log -Message "aws lambda update-function-code --function-name TU_FUNCION --zip-file fileb://$zipPath" -Level "WARNING"
-        Write-Log -Message "" -Level "INFO"
-        Write-Log -Message "OPCION 2 - AWS LAMBDA LAYERS:" -Level "WARNING"
-        Write-Log -Message "Crear un layer separado con pandas y boto3:" -Level "WARNING"
-        Write-Log -Message "1. Crear requirements-layer.txt con: pandas>=2.2.2 y boto3>=1.34.0" -Level "WARNING"
-        Write-Log -Message "2. Crear requirements-function.txt con: requests, pydantic, openpyxl" -Level "WARNING"
-        Write-Log -Message "3. El layer manejara las dependencias pesadas" -Level "WARNING"
-        Write-Log -Message "" -Level "INFO"
-        Write-Log -Message "OPCION 3 - CONTENEDOR DOCKER:" -Level "WARNING"
-        Write-Log -Message "Para proyectos grandes, usar Amazon ECR + contenedores" -Level "WARNING"
-        Write-Log -Message "Limite: 10GB (imagen de contenedor)" -Level "WARNING"
-        Write-Log -Message "========================================" -Level "WARNING"
+        Write-Log -Message "ACTIVANDO: Separacion automatica por tamaño ($zipSizeMB MB)" -Level "INFO"
+        
+        # Llamar función de separación
+        $splitResult = Split-LambdaPackage -BuildDir $BuildDir -PublicDir $PublicDir -OriginalZipName $zipFileName
+        
+        if ($splitResult.Success) {
+            Write-Log -Message "EXITO: Paquetes separados creados exitosamente" -Level "SUCCESS"
+            Write-Log -Message "FUNCION: function.zip ($($splitResult.FunctionSizeMB) MB)" -Level "INFO"
+            Write-Log -Message "LAYER: dependencies-layer.zip ($($splitResult.LayerSizeMB) MB)" -Level "INFO"
+            
+            # Generar instrucciones
+            $instructionsPath = Generate-DeployInstructions -PublicDir $PublicDir -FunctionZipName "function.zip" -LayerZipName "dependencies-layer.zip" -FunctionSizeMB $splitResult.FunctionSizeMB -LayerSizeMB $splitResult.LayerSizeMB
+            
+            if ($instructionsPath) {
+                Write-Log -Message "EXITO: Instrucciones generadas en: deploy-instructions.txt" -Level "SUCCESS"
+            }
+            
+            Write-Log -Message "========================================" -Level "INFO"
+            Write-Log -Message "RESULTADO: Separacion automatica completada" -Level "SUCCESS"
+            Write-Log -Message "- function.zip ($($splitResult.FunctionSizeMB) MB) - Tu codigo de aplicacion" -Level "INFO"
+            Write-Log -Message "- dependencies-layer.zip ($($splitResult.LayerSizeMB) MB) - Dependencias Python" -Level "INFO"
+            Write-Log -Message "- deploy-instructions.txt - Instrucciones completas" -Level "INFO"
+            Write-Log -Message "- $zipFileName ($zipSizeMB MB) - Paquete original (referencia)" -Level "INFO"
+            Write-Log -Message "========================================" -Level "INFO"
+            Write-Log -Message "SIGUIENTE PASO: Revisar deploy-instructions.txt para subir a AWS" -Level "SUCCESS"
+            
+        } else {
+            Write-Log -Message "ERROR: Fallo en separacion automatica: $($splitResult.Error)" -Level "ERROR"
+            Write-Log -Message "FALLBACK: Usando recomendaciones tradicionales" -Level "WARNING"
+            
+            # Mostrar recomendaciones tradicionales
+            Write-Log -Message "PROBLEMA: ZIP supera 50MB ($zipSizeMB MB) - Limite de AWS Lambda Console" -Level "WARNING"
+            Write-Log -Message "========================================" -Level "WARNING"
+            Write-Log -Message "SOLUCIONES RECOMENDADAS:" -Level "WARNING"
+            Write-Log -Message "" -Level "INFO"
+            Write-Log -Message "OPCION 1 - AWS CLI (MAS FACIL):" -Level "WARNING"
+            Write-Log -Message "aws lambda update-function-code --function-name TU_FUNCION --zip-file fileb://$zipPath" -Level "WARNING"
+            Write-Log -Message "" -Level "INFO"
+            Write-Log -Message "OPCION 2 - AWS LAMBDA LAYERS:" -Level "WARNING"
+            Write-Log -Message "Crear un layer separado con pandas y boto3:" -Level "WARNING"
+            Write-Log -Message "1. Crear requirements-layer.txt con: pandas>=2.2.2 y boto3>=1.34.0" -Level "WARNING"
+            Write-Log -Message "2. Crear requirements-function.txt con: requests, pydantic, openpyxl" -Level "WARNING"
+            Write-Log -Message "3. El layer manejara las dependencias pesadas" -Level "WARNING"
+            Write-Log -Message "" -Level "INFO"
+            Write-Log -Message "OPCION 3 - CONTENEDOR DOCKER:" -Level "WARNING"
+            Write-Log -Message "Para proyectos grandes, usar Amazon ECR + contenedores" -Level "WARNING"
+            Write-Log -Message "Limite: 10GB (imagen de contenedor)" -Level "WARNING"
+            Write-Log -Message "========================================" -Level "WARNING"
+        }
     } elseif ($zipSizeMB -gt 45) {
         Write-Log -Message "ATENCION: ZIP cerca del limite (50MB) - $zipSizeMB MB" -Level "WARNING"
         Write-Log -Message "Considere usar AWS CLI o Lambda Layers para futuras expansiones" -Level "WARNING"
