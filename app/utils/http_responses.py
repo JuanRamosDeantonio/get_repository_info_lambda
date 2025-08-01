@@ -257,6 +257,101 @@ def create_file_response(
         "isBase64Encoded": True
     }
 
+def create_reference_response(
+    bucket_name: str,
+    s3_path: str,
+    filename: Optional[str] = None,
+    content_type: Optional[str] = None,
+    cache_control: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Crea respuesta optimizada para referencia a archivos en S3.
+    
+    Args:
+        bucket_name: Nombre del bucket de S3
+        s3_path: Clave/ruta del archivo en el bucket
+        filename: Nombre sugerido del archivo (opcional)
+        content_type: Tipo MIME del archivo (opcional)
+        cache_control: Configuración de cache (opcional)
+        
+    Returns:
+        Dict[str, Any]: Respuesta HTTP con referencia al archivo en S3
+        
+    Raises:
+        ValueError: Si el bucket_name o s3_path están vacíos
+        
+    Features:
+        - Referencias a archivos en S3 sin transferir contenido
+        - Headers de descarga apropiados
+        - Detección automática de tipo MIME
+        - Content-Disposition para nombres de archivo
+        - Métricas de referencias generadas
+        
+    Example:
+        >>> response = create_reference_response(
+        ...     "my-bucket", "documents/script.py", "script.py", "text/python"
+        ... )
+    """
+    # Validar parámetros requeridos
+    if not bucket_name or not bucket_name.strip():
+        raise ValueError("bucket_name no puede estar vacío")
+        
+    if not s3_path or not s3_path.strip():
+        raise ValueError("s3_path no puede estar vacío")
+    
+    # Limpiar parámetros
+    bucket_name = bucket_name.strip()
+    s3_path = s3_path.strip().lstrip('/')  # Remover slash inicial si existe
+    
+    # Preparar headers
+    headers = FILE_HEADERS.copy()
+    
+    # Content-Type
+    if content_type:
+        headers["Content-Type"] = content_type
+    elif filename:
+        headers["Content-Type"] = _detect_content_type(filename)
+    elif s3_path:
+        # Intentar detectar desde la extensión del s3_path
+        headers["Content-Type"] = _detect_content_type(s3_path)
+    
+    # Cache control
+    if cache_control:
+        headers["Cache-Control"] = cache_control
+    elif _is_cacheable_file(filename or s3_path):
+        headers["Cache-Control"] = "public, max-age=3600"  # 1 hora
+    
+    # Content-Disposition para descarga
+    display_filename = filename or s3_path.split('/')[-1]  # Usar último segmento del path si no hay filename
+    if display_filename:
+        safe_filename = _sanitize_filename_for_header(display_filename)
+        headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
+    
+    # Crear cuerpo de respuesta con referencia a S3
+    response_body = {
+        "bucket_name": bucket_name,
+        "s3_path": s3_path
+    }
+    
+    # Métricas de referencia
+    log_business_metric("file_references", 1, "count")
+    log_business_metric("s3_references", 1, "count")
+    
+    logger.info("S3 reference response created", extra={
+        "bucket_name": bucket_name,
+        "s3_path": s3_path,
+        "filename_retrieved": filename,
+        "content_type": content_type,
+        "display_filename": display_filename
+    })
+    
+    return {
+        "statusCode": 200,
+        "headers": headers,
+        "body": json.dumps(response_body),
+        "isBase64Encoded": False
+    }
+
 
 # ========================================
 # RESPUESTAS DE ERROR

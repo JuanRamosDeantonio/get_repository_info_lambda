@@ -23,6 +23,7 @@ import hashlib
 import base64
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
+import os
 
 from app.core.constants import MAX_FILE_SIZE_BYTES, MetricNames
 from app.core.exceptions import (
@@ -40,7 +41,8 @@ from app.core.logger import (
     log_security_event
 )
 from app.core.validators import validate_file_path, validate_file_size, is_safe_filename, create_validation_error
-from app.utils.http_responses import create_file_response, create_exception_response
+from app.utils.http_responses import create_file_response, create_exception_response, create_reference_response
+import boto3
 
 # Logger para el módulo
 logger = get_logger(__name__)
@@ -101,14 +103,32 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
         
         # Post-procesar archivo descargado
         processed_file = _process_downloaded_file(file_data, safe_path, provider)
-        
+
+        if os.environ.get('EXECUTION_ENVIROMENT', 'lambda') == 'local':
+            logger.info("El entorno de ejcución es local")
+            s3_client = boto3.client('s3',
+                                 aws_access_key_id=os.environ.get('AWS_SECRET_ID'),
+                                 aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS'),
+                                 verify=False,
+                                 use_ssl=False)
+        else:
+            logger.info("El entorno de ejecución debe ser lambda")
+            s3_client = boto3.client('s3')
+
+        BUCKET_NAME = os.environ.get('BUCKET_NAME')
+        FOLDER_BUCKET = os.environ.get('FOLDER_BUCKET')
+        key_file = f'{FOLDER_BUCKET}/{processed_file["filename"]}'
+
         logger.info(f'filename -> {type(processed_file["filename"])}')
+
+        logger.info(f"Primeros 100 caracteres del contenido {processed_file['content'][:100]}")
+
+        response_s3 = s3_client.put_object(Bucket=BUCKET_NAME, Key=key_file, Body=processed_file['content'])
+
+        logger.info(f'Operación de s3 ejecutada con status code -> {response_s3['ResponseMetadata']['HTTPStatusCode']}')
+        
         # Crear respuesta optimizada
-        response = create_file_response(
-            content=processed_file["content"],
-            filename=processed_file["filename"],
-            content_type=processed_file["content_type"]
-        )
+        response = create_reference_response(bucket_name=BUCKET_NAME, s3_path=key_file)
         
         # Métricas finales
         _log_download_metrics(processed_file, provider)

@@ -13,6 +13,7 @@ certifi==2023.11.17
 # Type hints compatibility para Python 3.8+
 typing-extensions==4.8.0
 
+boto3
 # Optional: Si necesitas OAuth para algún proveedor
 # requests-oauthlib==1.3.1
 
