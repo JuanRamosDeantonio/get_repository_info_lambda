@@ -128,7 +128,8 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
         logger.info(f'Operación de s3 ejecutada con status code -> {response_s3['ResponseMetadata']['HTTPStatusCode']}')
         
         # Crear respuesta optimizada
-        response = create_reference_response(bucket_name=BUCKET_NAME, s3_path=key_file)
+        response = create_reference_response(bucket_name=BUCKET_NAME, 
+                                             s3_path=key_file, filename=processed_file["filename"])
         
         # Métricas finales
         _log_download_metrics(processed_file, provider)
