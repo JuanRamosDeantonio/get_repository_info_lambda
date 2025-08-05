@@ -52,7 +52,7 @@ logger = get_logger(__name__)
 # ========================================
 
 @log_performance(operation_name="download_file")
-def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, Any]:
+def handle_download_file(manager: Any, path: str, provider: str, ismarkdown: bool) -> Dict[str, Any]:
     """
     Maneja la operación DOWNLOAD_FILE con seguridad y optimizaciones completas.
     
@@ -88,7 +88,8 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
     logger.info(f"Starting file download", extra={
         "provider": provider,
         "path": path,
-        "operation": "DOWNLOAD_FILE"
+        "operation": "DOWNLOAD_FILE",
+        "ismarkdown":ismarkdown
     })
     
     try:
@@ -99,7 +100,7 @@ def handle_download_file(manager: Any, path: str, provider: str) -> Dict[str, An
         _pre_download_validations(safe_path, provider)
         
         # Descargar archivo del proveedor
-        file_data = _download_file_from_provider(manager, safe_path, provider)
+        file_data = _download_file_from_provider(manager, safe_path, provider, ismarkdown)
         
         # Post-procesar archivo descargado
         processed_file = _process_downloaded_file(file_data, safe_path, provider)
@@ -303,7 +304,7 @@ def _pre_download_validations(path: str, provider: str) -> None:
 # FUNCIONES DE DESCARGA
 # ========================================
 
-def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict[str, Any]:
+def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkdown: bool) -> Dict[str, Any]:
     """
     Descarga el archivo del proveedor con manejo robusto de errores.
     
@@ -311,6 +312,7 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
         manager: Manager del proveedor
         path: Ruta del archivo
         provider: Nombre del proveedor
+        ismarkdown: Si True, usa read_wiki_file para archivos markdown; si False, usa download_file
         
     Returns:
         Dict[str, Any]: Datos del archivo descargado
@@ -321,117 +323,34 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
     """
     logger.debug("Starting provider download", extra={
         "provider": provider,
-        "path": path
+        "path": path,
+        "ismarkdown": ismarkdown
     })
     
     # Registrar llamada a API externa
-    log_api_call(provider=provider, operation="DOWNLOAD_FILE", path=path)   
-   
+    operation = "READ_WIKI_FILE" if ismarkdown else "DOWNLOAD_FILE"
+    log_api_call(provider=provider, operation=operation, path=path)
+    
     try:
         start_time = time.time()
         
-        # Llamada al manager del proveedor
-        content = manager.download_file(path)
+        # Descargar contenido según el tipo
+        raw_content = _fetch_content_from_manager(manager, path, provider, ismarkdown)
         
-        # 🔍 DEBUG: Información del contenido recibido
-        logger.debug("Content received from manager", extra={
-            "provider": provider,
-            "path": path,
-            "content_type": type(content).__name__,
-            "content_length": len(content) if content else None
-        })
+        # Procesar y validar contenido
+        processed_content = _process_and_validate_content(raw_content, path, provider, ismarkdown)
         
         download_duration = time.time() - start_time
         
-        # Validaciones básicas del contenido
-        if content is None:
-            raise create_validation_error(
-                message="Archivo no encontrado",
-                field_name="path",
-                received_value=path
-            )
+        # Validar tamaño y estado final
+        file_size = len(processed_content)
+        _validate_download_result(processed_content, file_size, path, provider)
         
-        # ✅ CONVERSIÓN CORREGIDA DE CONTENIDO
-        if not isinstance(content, bytes):
-            logger.warning("Content is not bytes, converting", extra={
-                "provider": provider,
-                "path": path,
-                "content_type": type(content).__name__
-            })
-            
-            if isinstance(content, str):
-                # Para archivos binarios (.docx, .pdf, etc.), el contenido puede venir como base64
-                filename = path.split('/')[-1].lower()
-                
-                try:
-                    # Intentar decodificar como base64 primero
-                    content = base64.b64decode(content)
-                    logger.info("Successfully decoded base64 content", extra={
-                        "provider": provider,
-                        "path": path,
-                        "decoded_size": len(content)
-                    })
-                except Exception as base64_error:
-                    # Si falla base64, intentar como texto UTF-8 solo para archivos de texto
-                    text_extensions = ['.txt', '.py', '.js', '.json', '.md', '.yml', '.yaml', '.xml', '.csv', '.log']
-                    
-                    if any(ext in filename for ext in text_extensions):
-                        try:
-                            content = content.encode('utf-8')
-                            logger.info("Encoded as UTF-8 text file", extra={
-                                "provider": provider,
-                                "path": path,
-                                "encoded_size": len(content)
-                            })
-                        except UnicodeEncodeError as utf_error:
-                            raise ValidationError(
-                                f"No se pudo procesar el archivo de texto: {filename}. Error: {str(utf_error)}"
-                            )
-                    else:
-                        # Para archivos binarios, esto es un error
-                        raise ValidationError(
-                            f"Archivo binario recibido como string y no se pudo decodificar: {filename}. "
-                            f"Base64 error: {str(base64_error)}"
-                        )
-            else:
-                # Para otros tipos, convertir a string y luego a bytes
-                try:
-                    content = str(content).encode('utf-8')
-                    logger.info("Converted unknown type to bytes", extra={
-                        "provider": provider,
-                        "path": path,
-                        "original_type": type(content).__name__
-                    })
-                except Exception as convert_error:
-                    raise ValidationError(
-                        f"No se pudo convertir el contenido a bytes: {str(convert_error)}"
-                    )
-        
-        file_size = len(content)
-        
-        # Validar tamaño inmediatamente
-        validate_file_size(file_size, path.split('/')[-1])
-        
-        # Verificar que no esté vacío (a menos que sea intencional)
-        if file_size == 0:
-            logger.warning("Downloaded empty file", extra={
-                "provider": provider,
-                "path": path
-            })
-        
-        logger.debug("Provider download completed", extra={
-            "provider": provider,
-            "path": path,
-            "file_size": file_size,
-            "download_duration": round(download_duration, 3)
-        })
-        
-        # Métricas de descarga
-        log_business_metric("download_duration", download_duration, "seconds")
-        log_business_metric(f"downloads_{provider}", 1, "count")
+        # Registrar métricas y logging
+        _log_download_success(provider, path, file_size, download_duration, ismarkdown)
         
         return {
-            "content": content,
+            "content": processed_content,
             "size": file_size,
             "download_duration": download_duration,
             "path": path
@@ -442,32 +361,312 @@ def _download_file_from_provider(manager: Any, path: str, provider: str) -> Dict
         raise
         
     except Exception as e:
-        logger.error("Provider download failed", extra={
+        _handle_download_error(e, path, provider)
+
+
+def _fetch_content_from_manager(manager: Any, path: str, provider: str, ismarkdown: bool) -> Any:
+    """
+    Obtiene el contenido del manager según el tipo de archivo.
+    
+    Args:
+        manager: Manager del proveedor
+        path: Ruta del archivo
+        provider: Nombre del proveedor  
+        ismarkdown: Si True, usa método de wiki; si False, usa download normal
+        
+    Returns:
+        Any: Contenido crudo del manager
+    """
+    try:
+        if ismarkdown:
+            # Para archivos markdown, usar el método de wiki que retorna string
+            content = manager.read_wiki_file(path)
+            logger.debug("Wiki content fetched", extra={
+                "provider": provider,
+                "path": path,
+                "content_type": "string",
+                "content_length": len(content) if content else None
+            })
+        else:
+            # Para archivos normales, usar download que retorna bytes
+            content = manager.download_file(path)
+            logger.debug("File content fetched", extra={
+                "provider": provider,
+                "path": path,
+                "content_type": type(content).__name__,
+                "content_length": len(content) if content else None
+            })
+        
+        return content
+        
+    except Exception as e:
+        logger.error("Failed to fetch content from manager", extra={
             "provider": provider,
             "path": path,
-            "error": str(e),
-            "error_type": type(e).__name__
+            "ismarkdown": ismarkdown,
+            "error": str(e)
         })
+        raise
+
+
+def _process_and_validate_content(raw_content: Any, path: str, provider: str, ismarkdown: bool) -> bytes:
+    """
+    Procesa y valida el contenido descargado, convirtiéndolo a bytes.
+    
+    Args:
+        raw_content: Contenido crudo del manager
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+        ismarkdown: Tipo de contenido esperado
         
-        # Categorizar error específico
-        error_message = str(e).lower()
-        if "not found" in error_message or "404" in error_message:
-            raise SourceCodeError(
-                f"Archivo no encontrado: {path}",
-                provider=provider
-            )
-        elif "permission" in error_message or "403" in error_message:
-            raise SourceCodeError(
-                f"Sin permisos para acceder al archivo: {path}",
-                provider=provider
-            )
-        elif "timeout" in error_message:
-            raise SourceCodeError(
-                f"Timeout descargando archivo: {path}",
-                provider=provider
-            )
-        else:
-            raise ValidationError(str(e))
+    Returns:
+        bytes: Contenido procesado como bytes
+    """
+    # Validar que el contenido no sea None
+    if raw_content is None:
+        raise create_validation_error(
+            message="Archivo no encontrado",
+            field_name="path",
+            received_value=path
+        )
+    
+    # Procesar según el tipo de contenido esperado
+    if ismarkdown:
+        return _process_markdown_content(raw_content, path, provider)
+    else:
+        return _process_binary_content(raw_content, path, provider)
+
+
+def _process_markdown_content(content: Any, path: str, provider: str) -> bytes:
+    """
+    Procesa contenido markdown (debería ser string) y lo convierte a bytes.
+    
+    Args:
+        content: Contenido markdown del manager
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+        
+    Returns:
+        bytes: Contenido markdown como bytes UTF-8
+    """
+    if isinstance(content, str):
+        try:
+            processed_content = content.encode('utf-8')
+            logger.debug("Markdown content encoded to UTF-8 bytes", extra={
+                "provider": provider,
+                "path": path,
+                "original_length": len(content),
+                "encoded_size": len(processed_content)
+            })
+            return processed_content
+        except UnicodeEncodeError as e:
+            raise ValidationError(f"Error codificando contenido markdown como UTF-8: {str(e)}")
+    
+    elif isinstance(content, bytes):
+        logger.debug("Markdown content already in bytes", extra={
+            "provider": provider,
+            "path": path,
+            "size": len(content)
+        })
+        return content
+    
+    else:
+        # Intentar convertir otros tipos a string primero
+        try:
+            str_content = str(content)
+            return str_content.encode('utf-8')
+        except Exception as e:
+            raise ValidationError(f"No se pudo procesar contenido markdown de tipo {type(content).__name__}: {str(e)}")
+
+
+def _process_binary_content(content: Any, path: str, provider: str) -> bytes:
+    """
+    Procesa contenido binario y maneja diferentes tipos de entrada.
+    
+    Args:
+        content: Contenido del manager
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+        
+    Returns:
+        bytes: Contenido procesado como bytes
+    """
+    if isinstance(content, bytes):
+        logger.debug("Content already in bytes format", extra={
+            "provider": provider,
+            "path": path,
+            "size": len(content)
+        })
+        return content
+    
+    elif isinstance(content, str):
+        return _convert_string_to_bytes(content, path, provider)
+    
+    else:
+        return _convert_other_type_to_bytes(content, path, provider)
+
+
+def _convert_string_to_bytes(content: str, path: str, provider: str) -> bytes:
+    """
+    Convierte contenido string a bytes, intentando diferentes estrategias.
+    
+    Args:
+        content: Contenido como string
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+        
+    Returns:
+        bytes: Contenido convertido a bytes
+    """
+    logger.warning("Content is string, converting to bytes", extra={
+        "provider": provider,
+        "path": path,
+        "content_length": len(content)
+    })
+    
+    filename = path.split('/')[-1].lower()
+    
+    # Estrategia 1: Intentar decodificar como base64 primero
+    try:
+        decoded_content = base64.b64decode(content)
+        logger.info("Successfully decoded base64 content", extra={
+            "provider": provider,
+            "path": path,
+            "original_size": len(content),
+            "decoded_size": len(decoded_content)
+        })
+        return decoded_content
+    except Exception as base64_error:
+        logger.debug("Base64 decode failed, trying text encoding", extra={
+            "provider": provider,
+            "path": path,
+            "base64_error": str(base64_error)
+        })
+    
+    # Estrategia 2: Para archivos de texto, codificar como UTF-8
+    text_extensions = {'.txt', '.py', '.js', '.json', '.md', '.yml', '.yaml', '.xml', '.csv', '.log', '.html', '.css'}
+    
+    if any(filename.endswith(ext) for ext in text_extensions):
+        try:
+            encoded_content = content.encode('utf-8')
+            logger.info("Encoded as UTF-8 text file", extra={
+                "provider": provider,
+                "path": path,
+                "original_length": len(content),
+                "encoded_size": len(encoded_content)
+            })
+            return encoded_content
+        except UnicodeEncodeError as utf_error:
+            raise ValidationError(f"No se pudo procesar el archivo de texto {filename}: {str(utf_error)}")
+    
+    # Para archivos binarios que llegaron como string, es un error
+    raise ValidationError(
+        f"Archivo binario '{filename}' recibido como string y no se pudo decodificar. "
+        f"Puede ser un problema en el proveedor {provider}."
+    )
+
+
+def _convert_other_type_to_bytes(content: Any, path: str, provider: str) -> bytes:
+    """
+    Convierte tipos no estándar a bytes.
+    
+    Args:
+        content: Contenido de tipo desconocido
+        path: Ruta del archivo  
+        provider: Nombre del proveedor
+        
+    Returns:
+        bytes: Contenido convertido a bytes
+    """
+    try:
+        str_content = str(content)
+        encoded_content = str_content.encode('utf-8')
+        logger.info("Converted unknown type to bytes", extra={
+            "provider": provider,
+            "path": path,
+            "original_type": type(content).__name__,
+            "encoded_size": len(encoded_content)
+        })
+        return encoded_content
+    except Exception as convert_error:
+        raise ValidationError(f"No se pudo convertir contenido de tipo {type(content).__name__} a bytes: {str(convert_error)}")
+
+
+def _validate_download_result(content: bytes, file_size: int, path: str, provider: str) -> None:
+    """
+    Valida el resultado final de la descarga.
+    
+    Args:
+        content: Contenido descargado
+        file_size: Tamaño del archivo
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+    """
+    # Validar tamaño
+    validate_file_size(file_size, path.split('/')[-1])
+    
+    # Advertir sobre archivos vacíos
+    if file_size == 0:
+        logger.warning("Downloaded empty file", extra={
+            "provider": provider,
+            "path": path
+        })
+
+
+def _log_download_success(provider: str, path: str, file_size: int, duration: float, ismarkdown: bool) -> None:
+    """
+    Registra el éxito de la descarga con métricas y logs.
+    
+    Args:
+        provider: Nombre del proveedor
+        path: Ruta del archivo
+        file_size: Tamaño del archivo
+        duration: Duración de la descarga
+        ismarkdown: Tipo de descarga realizada
+    """
+    operation_type = "wiki" if ismarkdown else "file"
+    
+    logger.debug("Provider download completed", extra={
+        "provider": provider,
+        "path": path,
+        "file_size": file_size,
+        "download_duration": round(duration, 3),
+        "operation_type": operation_type
+    })
+    
+    # Métricas de descarga
+    log_business_metric("download_duration", duration, "seconds")
+    log_business_metric(f"downloads_{provider}", 1, "count")
+    log_business_metric(f"downloads_{provider}_{operation_type}", 1, "count")
+
+
+def _handle_download_error(error: Exception, path: str, provider: str) -> None:
+    """
+    Maneja y categoriza errores de descarga.
+    
+    Args:
+        error: Excepción ocurrida
+        path: Ruta del archivo
+        provider: Nombre del proveedor
+    """
+    logger.error("Provider download failed", extra={
+        "provider": provider,
+        "path": path,
+        "error": str(error),
+        "error_type": type(error).__name__
+    })
+    
+    # Categorizar error específico
+    error_message = str(error).lower()
+    
+    if "not found" in error_message or "404" in error_message:
+        raise SourceCodeError(f"Archivo no encontrado: {path}", provider=provider)
+    elif "permission" in error_message or "403" in error_message:
+        raise SourceCodeError(f"Sin permisos para acceder al archivo: {path}", provider=provider)
+    elif "timeout" in error_message:
+        raise SourceCodeError(f"Timeout descargando archivo: {path}", provider=provider)
+    else:
+        raise ValidationError(str(error))
 
 
 def _process_downloaded_file(file_data: Dict[str, Any], path: str, provider: str) -> Dict[str, Any]:

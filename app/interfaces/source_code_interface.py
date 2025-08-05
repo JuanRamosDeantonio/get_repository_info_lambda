@@ -1,4 +1,3 @@
-
 from abc import ABC, abstractmethod
 from typing import List
 from app.models.file_node import FileNode
@@ -11,7 +10,8 @@ class ISourceCodeManager(ABC):
     para acceder y manipular estructuras de repositorios en distintas plataformas
     (por ejemplo: GitHub, GitLab, Bitbucket, Azure Repos).
 
-    Esta interfaz permite desacoplar la lógica de negocio de la fuente real de los datos.
+    Esta interfaz permite desacoplar la lógica de negocio de la fuente real de los datos,
+    incluyendo acceso tanto al código fuente como a la documentación wiki asociada.
     """
 
     @abstractmethod
@@ -40,5 +40,44 @@ class ISourceCodeManager(ABC):
         
         Raises:
             SourceCodeError: Si el archivo no existe o hay error en la descarga.
+        """
+        pass
+
+    @abstractmethod
+    def read_wiki_file(self, file_path: str) -> str:
+        """
+        Lee el contenido de un archivo markdown de la wiki del repositorio.
+
+        La wiki es un espacio de documentación separado del código fuente principal
+        donde se almacenan archivos markdown con información del proyecto.
+
+        Args:
+            file_path (str): Nombre o ruta del archivo en la wiki (ej: "Home.md", "Installation.md").
+                           Se puede omitir la extensión .md, se añadirá automáticamente si es necesario.
+        
+        Returns:
+            str: Contenido del archivo markdown como string UTF-8.
+        
+        Raises:
+            SourceCodeError: Si la wiki no existe, el archivo no se encuentra, 
+                           hay problemas de permisos, o errores de decodificación.
+        """
+        pass
+
+    @abstractmethod
+    def list_wiki_files(self) -> List[str]:
+        """
+        Lista todos los archivos markdown disponibles en la wiki del repositorio.
+
+        Proporciona una vista general de toda la documentación disponible en la wiki,
+        útil para descobrir qué archivos están disponibles antes de leerlos.
+
+        Returns:
+            List[str]: Lista ordenada alfabéticamente de nombres de archivos .md en la wiki.
+                      Ejemplo: ["Home.md", "Installation.md", "API-Reference.md"]
+        
+        Raises:
+            SourceCodeError: Si la wiki no existe, hay problemas de permisos,
+                           o errores de acceso al repositorio.
         """
         pass
