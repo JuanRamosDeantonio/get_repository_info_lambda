@@ -1004,7 +1004,7 @@ def _log_download_metrics(processed_file: Dict[str, Any], provider: str) -> None
 # FUNCIONES DE CONVENIENCIA PARA TESTING LOCAL
 # ========================================
 
-def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
+def handle_download_file_local(manager: Any, path: str, provider: str, ismarkdown:bool) -> None:
     """
     Maneja DOWNLOAD_FILE para testing local con output formateado y debug completo.
     
@@ -1020,7 +1020,7 @@ def handle_download_file_local(manager: Any, path: str, provider: str) -> None:
         logger.info("=== INICIANDO DOWNLOAD_FILE (LOCAL) ===")
         
         # Usar el manejador principal
-        response = handle_download_file(manager, path, provider)
+        response = handle_download_file(manager, path, provider, ismarkdown)
         
         # 🔍 DEBUG: Mostrar estructura completa de la respuesta
         print("\n🔍 RESPONSE STRUCTURE:")

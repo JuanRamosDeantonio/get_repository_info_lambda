@@ -78,7 +78,7 @@ def parse_lambda_event(event: Dict[str, Any], context: Any) -> Tuple[str, Any, s
         body = _extract_event_body(event)
         
         # Validar datos completos del request
-        operation, provider, config, path = validate_request_data(body)
+        operation, provider, config, path, ismarkdown = validate_request_data(body)
         
         # Actualizar contexto con información del request
         set_request_context(
@@ -95,7 +95,7 @@ def parse_lambda_event(event: Dict[str, Any], context: Any) -> Tuple[str, Any, s
         log_request_lifecycle("PARSE_SUCCESS", request_id, 
                             operation=operation, provider=provider)
         
-        return operation, manager, provider, path
+        return operation, manager, provider, path, ismarkdown
         
     except Exception as e:
         # Log error del parseo
@@ -222,7 +222,7 @@ def parse_local_event(event_file: Optional[str] = None) -> Tuple[str, Any, str, 
             event_data = _parse_command_line_args()
         
         # Validar datos del request
-        operation, provider, config, path = validate_request_data(event_data)
+        operation, provider, config, path, ismarkdown = validate_request_data(event_data)
         
         # Actualizar contexto
         set_request_context(
@@ -238,7 +238,7 @@ def parse_local_event(event_file: Optional[str] = None) -> Tuple[str, Any, str, 
         log_request_lifecycle("PARSE_SUCCESS", request_id,
                             operation=operation, provider=provider)
         
-        return operation, manager, provider, path
+        return operation, manager, provider, path, ismarkdown
         
     except Exception as e:
         log_request_lifecycle("PARSE_ERROR", request_id,
