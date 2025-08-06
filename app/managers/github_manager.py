@@ -232,12 +232,12 @@ class GitHubManager(ISourceCodeManager):
             log_api_call("github", "read_wiki_file", file_path=file_path)
             
             # Las wikis están en un repositorio separado con .wiki
-            wiki_repo = f"{self.repo}.wiki"
+            wiki_repo = f"{self.repo}"
             wiki_api_base = f"https://api.github.com/repos/{self.owner}/{wiki_repo}"
             
             # Método 1: Intentar raw URL primero (más eficiente)
             encoded_path = urllib.parse.quote(file_path, safe='/')
-            raw_url = f"https://raw.githubusercontent.com/{self.owner}/{wiki_repo}/master/{encoded_path}"
+            raw_url = f"https://raw.githubusercontent.com/wiki/{self.owner}/{wiki_repo}/{encoded_path}"
             
             print(f"🔄 Intentando wiki raw URL: {raw_url}")
             

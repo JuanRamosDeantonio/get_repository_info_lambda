@@ -693,7 +693,7 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     # Extraer y validar campos principales
     operation = validate_operation(data.get("operation"))
     provider = validate_provider(data.get("provider"))
-    ismarkdown = validate_provider(data.get("ismarkdown"))
+    ismarkdown = data.get("ismarkdown") == 'true'
     
     # Validar configuracion
     config_data = data.get("config")
