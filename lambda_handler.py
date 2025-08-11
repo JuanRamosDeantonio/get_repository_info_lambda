@@ -125,7 +125,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             normalized_event = event
 
         # Extraer operación y contexto usando el evento normalizado
-        operation, manager, provider, path = parse_lambda_event(normalized_event, context)
+        operation, manager, provider, path, iswiki = parse_lambda_event(normalized_event, context)
 
         logger.info("🔁 Routing operation", extra={
             "request_id": request_id,
@@ -139,7 +139,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_get_structure(manager, provider)
 
         elif operation == "DOWNLOAD_FILE":
-            return handle_download_file(manager, path, provider)
+            return handle_download_file(manager, path, provider, iswiki)
 
         else:
             raise ValueError(f"Operación no reconocida: {operation}")

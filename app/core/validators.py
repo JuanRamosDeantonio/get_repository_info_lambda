@@ -693,7 +693,7 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     # Extraer y validar campos principales
     operation = validate_operation(data.get("operation"))
     provider = validate_provider(data.get("provider"))
-    ismarkdown = data.get("ismarkdown") == 'true'
+    iswiki = data.get("iswiki") == 'true'
     
     # Validar configuracion
     config_data = data.get("config")
@@ -724,12 +724,12 @@ def validate_request_data(data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any
     logger.info("Request validation completed successfully", extra={
         "operation": operation,
         "provider": provider,
-        "ismarkdown": ismarkdown,
+        "iswiki": iswiki,
         "has_path": bool(path),
         "config_keys": list(config.keys())
     })
     
-    return operation, provider, config, path, ismarkdown
+    return operation, provider, config, path, iswiki
 
 
 def fix_encoding(text: str) -> str:

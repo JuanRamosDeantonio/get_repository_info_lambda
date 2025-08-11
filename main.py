@@ -56,7 +56,7 @@ def main() -> None:
         print("EVENTFILE********************************")
         
         # Parsear evento (desde archivo o línea de comandos)
-        operation, manager, provider, path, ismarkdown = parse_local_event(event_file)
+        operation, manager, provider, path, iswiki = parse_local_event(event_file)
 
         print("E1********************************")
         print(path)
@@ -67,7 +67,7 @@ def main() -> None:
             handle_get_structure_local(manager, provider)
 
         elif operation == "DOWNLOAD_FILE":
-            handle_download_file_local(manager, path, provider,ismarkdown)
+            handle_download_file_local(manager, path, provider,iswiki)
 
         else:
             print(f"❌ Operación no reconocida: {operation}")

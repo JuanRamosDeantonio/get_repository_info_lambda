@@ -52,7 +52,7 @@ logger = get_logger(__name__)
 # ========================================
 
 @log_performance(operation_name="download_file")
-def handle_download_file(manager: Any, path: str, provider: str, ismarkdown: bool) -> Dict[str, Any]:
+def handle_download_file(manager: Any, path: str, provider: str, iswiki: bool) -> Dict[str, Any]:
     """
     Maneja la operación DOWNLOAD_FILE con seguridad y optimizaciones completas.
     
@@ -89,7 +89,7 @@ def handle_download_file(manager: Any, path: str, provider: str, ismarkdown: boo
         "provider": provider,
         "path": path,
         "operation": "DOWNLOAD_FILE",
-        "ismarkdown":ismarkdown
+        "iswiki":iswiki
     })
     
     try:
@@ -100,7 +100,7 @@ def handle_download_file(manager: Any, path: str, provider: str, ismarkdown: boo
         _pre_download_validations(safe_path, provider)
         
         # Descargar archivo del proveedor
-        file_data = _download_file_from_provider(manager, safe_path, provider, ismarkdown)
+        file_data = _download_file_from_provider(manager, safe_path, provider, iswiki)
         
         # Post-procesar archivo descargado
         processed_file = _process_downloaded_file(file_data, safe_path, provider)
@@ -304,7 +304,7 @@ def _pre_download_validations(path: str, provider: str) -> None:
 # FUNCIONES DE DESCARGA
 # ========================================
 
-def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkdown: bool) -> Dict[str, Any]:
+def _download_file_from_provider(manager: Any, path: str, provider: str, iswiki: bool) -> Dict[str, Any]:
     """
     Descarga el archivo del proveedor con manejo robusto de errores.
     
@@ -312,7 +312,7 @@ def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkd
         manager: Manager del proveedor
         path: Ruta del archivo
         provider: Nombre del proveedor
-        ismarkdown: Si True, usa read_wiki_file para archivos markdown; si False, usa download_file
+        iswiki: Si True, usa read_wiki_file para archivos markdown; si False, usa download_file
         
     Returns:
         Dict[str, Any]: Datos del archivo descargado
@@ -324,21 +324,21 @@ def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkd
     logger.debug("Starting provider download", extra={
         "provider": provider,
         "path": path,
-        "ismarkdown": ismarkdown
+        "iswiki": iswiki
     })
     
     # Registrar llamada a API externa
-    operation = "READ_WIKI_FILE" if ismarkdown else "DOWNLOAD_FILE"
+    operation = "READ_WIKI_FILE" if iswiki else "DOWNLOAD_FILE"
     log_api_call(provider=provider, operation=operation, path=path)
     
     try:
         start_time = time.time()
         
         # Descargar contenido según el tipo
-        raw_content = _fetch_content_from_manager(manager, path, provider, ismarkdown)
+        raw_content = _fetch_content_from_manager(manager, path, provider, iswiki)
         
         # Procesar y validar contenido
-        processed_content = _process_and_validate_content(raw_content, path, provider, ismarkdown)
+        processed_content = _process_and_validate_content(raw_content, path, provider, iswiki)
         
         download_duration = time.time() - start_time
         
@@ -347,7 +347,7 @@ def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkd
         _validate_download_result(processed_content, file_size, path, provider)
         
         # Registrar métricas y logging
-        _log_download_success(provider, path, file_size, download_duration, ismarkdown)
+        _log_download_success(provider, path, file_size, download_duration, iswiki)
         
         return {
             "content": processed_content,
@@ -364,7 +364,7 @@ def _download_file_from_provider(manager: Any, path: str, provider: str, ismarkd
         _handle_download_error(e, path, provider)
 
 
-def _fetch_content_from_manager(manager: Any, path: str, provider: str, ismarkdown: bool) -> Any:
+def _fetch_content_from_manager(manager: Any, path: str, provider: str, iswiki: bool) -> Any:
     """
     Obtiene el contenido del manager según el tipo de archivo.
     
@@ -372,13 +372,13 @@ def _fetch_content_from_manager(manager: Any, path: str, provider: str, ismarkdo
         manager: Manager del proveedor
         path: Ruta del archivo
         provider: Nombre del proveedor  
-        ismarkdown: Si True, usa método de wiki; si False, usa download normal
+        iswiki: Si True, usa método de wiki; si False, usa download normal
         
     Returns:
         Any: Contenido crudo del manager
     """
     try:
-        if ismarkdown:
+        if iswiki:
             # Para archivos markdown, usar el método de wiki que retorna string
             content = manager.read_wiki_file(path)
             logger.debug("Wiki content fetched", extra={
@@ -403,13 +403,13 @@ def _fetch_content_from_manager(manager: Any, path: str, provider: str, ismarkdo
         logger.error("Failed to fetch content from manager", extra={
             "provider": provider,
             "path": path,
-            "ismarkdown": ismarkdown,
+            "iswiki": iswiki,
             "error": str(e)
         })
         raise
 
 
-def _process_and_validate_content(raw_content: Any, path: str, provider: str, ismarkdown: bool) -> bytes:
+def _process_and_validate_content(raw_content: Any, path: str, provider: str, iswiki: bool) -> bytes:
     """
     Procesa y valida el contenido descargado, convirtiéndolo a bytes.
     
@@ -417,7 +417,7 @@ def _process_and_validate_content(raw_content: Any, path: str, provider: str, is
         raw_content: Contenido crudo del manager
         path: Ruta del archivo
         provider: Nombre del proveedor
-        ismarkdown: Tipo de contenido esperado
+        iswiki: Tipo de contenido esperado
         
     Returns:
         bytes: Contenido procesado como bytes
@@ -431,7 +431,7 @@ def _process_and_validate_content(raw_content: Any, path: str, provider: str, is
         )
     
     # Procesar según el tipo de contenido esperado
-    if ismarkdown:
+    if iswiki:
         return _process_markdown_content(raw_content, path, provider)
     else:
         return _process_binary_content(raw_content, path, provider)
@@ -613,7 +613,7 @@ def _validate_download_result(content: bytes, file_size: int, path: str, provide
         })
 
 
-def _log_download_success(provider: str, path: str, file_size: int, duration: float, ismarkdown: bool) -> None:
+def _log_download_success(provider: str, path: str, file_size: int, duration: float, iswiki: bool) -> None:
     """
     Registra el éxito de la descarga con métricas y logs.
     
@@ -622,9 +622,9 @@ def _log_download_success(provider: str, path: str, file_size: int, duration: fl
         path: Ruta del archivo
         file_size: Tamaño del archivo
         duration: Duración de la descarga
-        ismarkdown: Tipo de descarga realizada
+        iswiki: Tipo de descarga realizada
     """
-    operation_type = "wiki" if ismarkdown else "file"
+    operation_type = "wiki" if iswiki else "file"
     
     logger.debug("Provider download completed", extra={
         "provider": provider,
@@ -1004,7 +1004,7 @@ def _log_download_metrics(processed_file: Dict[str, Any], provider: str) -> None
 # FUNCIONES DE CONVENIENCIA PARA TESTING LOCAL
 # ========================================
 
-def handle_download_file_local(manager: Any, path: str, provider: str, ismarkdown:bool) -> None:
+def handle_download_file_local(manager: Any, path: str, provider: str, iswiki:bool) -> None:
     """
     Maneja DOWNLOAD_FILE para testing local con output formateado y debug completo.
     
@@ -1020,7 +1020,7 @@ def handle_download_file_local(manager: Any, path: str, provider: str, ismarkdow
         logger.info("=== INICIANDO DOWNLOAD_FILE (LOCAL) ===")
         
         # Usar el manejador principal
-        response = handle_download_file(manager, path, provider, ismarkdown)
+        response = handle_download_file(manager, path, provider, iswiki)
         
         # 🔍 DEBUG: Mostrar estructura completa de la respuesta
         print("\n🔍 RESPONSE STRUCTURE:")
