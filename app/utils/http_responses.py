@@ -119,6 +119,7 @@ def create_structure_response(
     nodes: List[Any],
     provider: str,
     markdown: str,
+    markdown_wiki: str,
     metadata: Optional[Dict[str, Any]],
     files = None
 ) -> Dict[str, Any]:
@@ -154,6 +155,7 @@ def create_structure_response(
         "mensaje": "Estructura obtenida exitosamente",
         "proveedor": provider,
         "markdown": markdown,
+        "markdown_wiki": markdown_wiki,
         "estructura": serialize_structure(nodes),
         "total_nodos": total_nodes,
         "archivos": files or [],

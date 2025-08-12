@@ -63,21 +63,3 @@ class ISourceCodeManager(ABC):
                            hay problemas de permisos, o errores de decodificación.
         """
         pass
-
-    @abstractmethod
-    def list_wiki_files(self) -> List[str]:
-        """
-        Lista todos los archivos markdown disponibles en la wiki del repositorio.
-
-        Proporciona una vista general de toda la documentación disponible en la wiki,
-        útil para descobrir qué archivos están disponibles antes de leerlos.
-
-        Returns:
-            List[str]: Lista ordenada alfabéticamente de nombres de archivos .md en la wiki.
-                      Ejemplo: ["Home.md", "Installation.md", "API-Reference.md"]
-        
-        Raises:
-            SourceCodeError: Si la wiki no existe, hay problemas de permisos,
-                           o errores de acceso al repositorio.
-        """
-        pass

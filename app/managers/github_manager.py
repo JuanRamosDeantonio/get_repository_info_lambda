@@ -1,13 +1,24 @@
 import requests
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import base64
+import time
+from urllib.parse import unquote
+import platform
+import concurrent.futures
+import threading
 
 import urllib
 from app.interfaces.source_code_interface import ISourceCodeManager
 from app.models.file_node import FileNode
 from app.core.exceptions import SourceCodeError
 from app.core.logger import get_logger, log_api_call
+from app.managers.wiki_reader import (
+    MemoryOnlyWikiReader,
+    quick_get_wiki_structure_memory,
+    quick_get_file_content_memory,
+    test_memory_usage
+)
 
 logger = get_logger(__name__)
 
@@ -15,6 +26,7 @@ class GitHubManager(ISourceCodeManager):
     """
     Gestor de repositorios GitHub que permite obtener la estructura y contenido de archivos,
     así como acceso a la documentación wiki asociada.
+    VERSIÓN SÍNCRONA corregida para compatibilidad con handlers síncronos.
     """
 
     def __init__(self, config: dict):
@@ -30,11 +42,342 @@ class GitHubManager(ISourceCodeManager):
             "Authorization": f"token {self.token}",
             "Accept": "application/vnd.github.v3+json"
         }
+        self.platform = platform.system()
+        # Inicializar reader si está disponible
+        try:
+            self.reader = MemoryOnlyWikiReader()
+        except:
+            self.reader = None
+    
+    def _get_pages_content(self, owner, repo, md_files, preview_length):
+        """Obtiene contenido de páginas usando el reader único"""
+        pages_details = []
+        
+        print(f"🔗 Usando WikiReader Híbrido en {self.platform}...")
+        
+        for file_info in md_files:
+            page_detail = {
+                'name': self.format_page_name(file_info['name']),
+                'filename': file_info['name'],
+                'path': file_info['path'],
+                'size_bytes': file_info['size_estimated'],
+                'size_human': self.format_file_size(file_info['size_estimated']),
+                'download_url': file_info['raw_url']
+            }
+            
+            # Obtener contenido usando nuestro reader único si está disponible
+            if self.reader:
+                try:
+                    content_result = self.reader.get_file_content(owner, repo, file_info['path'])
+                    
+                    if content_result.success:
+                        content = content_result.data.content
+                        page_detail.update({
+                            'content_preview': content[:preview_length] + '...' if len(content) > preview_length else content,
+                            'content_length': len(content),
+                            'has_content': True,
+                            'content_lines': content.count('\n') + 1,
+                            'fetch_time': content_result.execution_time,
+                            'method': content_result.method_used
+                        })
+                    else:
+                        page_detail.update({
+                            'content_preview': None,
+                            'has_content': False,
+                            'error': content_result.error
+                        })
+                except Exception as e:
+                    page_detail.update({
+                        'content_preview': None,
+                        'has_content': False,
+                        'error': str(e)
+                    })
+            else:
+                # Sin reader, solo metadatos
+                page_detail.update({
+                    'content_preview': None,
+                    'has_content': False,
+                    'error': 'WikiReader no disponible'
+                })
+            
+            pages_details.append(page_detail)
+        
+        # Reporte final si el reader está disponible
+        if self.reader:
+            try:
+                resource_report = self.reader.get_resource_usage_report()
+                if 'disk_note' in resource_report:
+                    print(f"💾 Recursos usados: {resource_report['memory_peak_mb']:.1f}MB RAM")
+                    print(f"📁 Disco: {resource_report['disk_used_mb']:.1f}MB ({resource_report['disk_note']})")
+                else:
+                    print(f"💾 Recursos usados: {resource_report['memory_peak_mb']:.1f}MB RAM, {resource_report['disk_used_mb']}MB disco")
+            except:
+                print("💾 Recursos: información no disponible")
+        
+        return sorted(pages_details, key=lambda x: x.get('name', ''))
+
+    def format_file_size(self, size_bytes):
+        """Convierte bytes a formato legible"""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+    def format_page_name(self, filename):
+        """Convierte filename a nombre legible de página"""
+        if filename.endswith('.md'):
+            name = filename[:-3]
+        else:
+            name = filename
+
+        name = unquote(name)
+        name = name.replace('-', ' ').replace('_', ' ')
+        return name
+
+    def _convert_to_legacy_format(self, wiki_structure, owner, repo, include_content, preview_length):
+        """Convierte a formato legacy"""
+        md_files = [f for f in wiki_structure.files if f['file_type'] == 'markdown']
+        other_files = [f for f in wiki_structure.files if f['file_type'] != 'markdown']
+        
+        result = {
+            'repository': wiki_structure.repository,
+            'wiki_exists': True,
+            'scan_timestamp': int(time.time()),
+            'total_files': wiki_structure.total_files,
+            'markdown_pages': wiki_structure.markdown_files,
+            'other_files_count': wiki_structure.other_files,
+            'structure': {
+                'pages': [self.format_page_name(f['name']) for f in md_files],
+                'other_files': [f['name'] for f in other_files]
+            },
+            'pages_details': [],
+            'memory_usage_mb': wiki_structure.memory_usage_mb,
+            'disk_usage_mb': 0.0,
+            'files': wiki_structure.files
+        }
+        
+        # Obtener contenido si es solicitado
+        if include_content and md_files:
+            print(f"📖 Obteniendo contenido de {len(md_files)} páginas (100% memoria)...")
+            result['pages_details'] = self._get_pages_content(
+                owner, repo, md_files, preview_length
+            )
+        else:
+            # Solo metadatos
+            result['pages_details'] = [{
+                'name': self.format_page_name(f['name']),
+                'filename': f['name'],
+                'path': f['path'],
+                'size_bytes': f['size_estimated'],
+                'size_human': self.format_file_size(f['size_estimated']),
+                'download_url': f['raw_url']
+            } for f in md_files]
+        
+        return result
+
+    def _limit_pages_if_needed(self, wiki_structure, max_pages):
+        """Limita páginas si es necesario"""
+        if not max_pages or not wiki_structure.files:
+            return wiki_structure
+        
+        md_files = [f for f in wiki_structure.files if f['file_type'] == 'markdown']
+        if len(md_files) <= max_pages:
+            return wiki_structure
+        
+        # Crear estructura limitada
+        try:
+            from wiki_reader import WikiStructure
+            limited_files = []
+            limited_md_count = 0
+            
+            for f in wiki_structure.files:
+                if f['file_type'] == 'markdown' and limited_md_count < max_pages:
+                    limited_files.append(f)
+                    limited_md_count += 1
+                elif f['file_type'] != 'markdown':
+                    limited_files.append(f)
+            
+            return WikiStructure(
+                repository=wiki_structure.repository,
+                exists=True,
+                method_used=wiki_structure.method_used,
+                total_files=len(limited_files),
+                total_directories=wiki_structure.total_directories,
+                markdown_files=limited_md_count,
+                image_files=wiki_structure.image_files,
+                other_files=len(limited_files) - limited_md_count - wiki_structure.image_files,
+                files=limited_files,
+                directory_tree=wiki_structure.directory_tree,
+                scan_time=wiki_structure.scan_time,
+                memory_usage_mb=wiki_structure.memory_usage_mb
+            )
+        except ImportError:
+            # Si WikiStructure no está disponible, retornar estructura original
+            return wiki_structure
+
+    def _get_wiki_structure_simple(self, owner, repo, 
+                                  include_content=False, max_pages=50, preview_length=300):
+        """Versión simplificada para compatibilidad legacy"""
+        print(f"🧠 Usando WikiReader Memory-Only para {owner}/{repo} en {self.platform}...")
+        
+        try:
+            # Obtener estructura usando nuestro reader si está disponible
+            if quick_get_wiki_structure_memory:
+                wiki_structure = quick_get_wiki_structure_memory(owner, repo, self.token)
+                
+                if not wiki_structure:
+                    return {
+                        'repository': f"{owner}/{repo}",
+                        'wiki_exists': False,
+                        'message': 'Wiki no encontrada o no accesible',
+                        'memory_usage_mb': 5.0,
+                        'disk_usage_mb': 0.0
+                    }
+                
+                # Limitar páginas si es necesario
+                wiki_structure = self._limit_pages_if_needed(wiki_structure, max_pages)
+                
+                # Convertir al formato legacy
+                return self._convert_to_legacy_format(
+                    wiki_structure, owner, repo, include_content, preview_length
+                )
+            else:
+                # Fallback si el wiki reader no está disponible
+                return self._get_wiki_structure_fallback(owner, repo)
+            
+        except Exception as e:
+            logger.warning(f"Error en wiki structure: {e}")
+            return {
+                'repository': f"{owner}/{repo}",
+                'wiki_exists': False,
+                'message': f'Error: {str(e)}',
+                'memory_usage_mb': 5.0,
+                'disk_usage_mb': 0.0
+            }
+
+    def _get_wiki_structure_fallback(self, owner, repo):
+        """Fallback para obtener estructura wiki sin el reader completo"""
+        try:
+            wiki_files = self.list_wiki_files()
+            if not wiki_files:
+                return {
+                    'repository': f"{owner}/{repo}",
+                    'wiki_exists': False,
+                    'message': 'No se encontraron archivos wiki',
+                    'memory_usage_mb': 2.0,
+                    'disk_usage_mb': 0.0
+                }
+            
+            files = []
+            for wiki_file in wiki_files:
+                files.append({
+                    'name': wiki_file,
+                    'path': f"wiki/{wiki_file}",
+                    'file_type': 'markdown',
+                    'size_estimated': 1024,
+                    'raw_url': f"https://raw.githubusercontent.com/wiki/{owner}/{repo}/{wiki_file}"
+                })
+            
+            return {
+                'repository': f"{owner}/{repo}",
+                'wiki_exists': True,
+                'scan_timestamp': int(time.time()),
+                'total_files': len(files),
+                'markdown_pages': len(files),
+                'other_files_count': 0,
+                'structure': {
+                    'pages': [self.format_page_name(f['name']) for f in files],
+                    'other_files': []
+                },
+                'pages_details': [{
+                    'name': self.format_page_name(f['name']),
+                    'filename': f['name'],
+                    'path': f['path'],
+                    'size_bytes': f['size_estimated'],
+                    'size_human': self.format_file_size(f['size_estimated']),
+                    'download_url': f['raw_url']
+                } for f in files],
+                'memory_usage_mb': 2.0,
+                'disk_usage_mb': 0.0,
+                'files': files
+            }
+            
+        except Exception as e:
+            return {
+                'repository': f"{owner}/{repo}",
+                'wiki_exists': False,
+                'message': f'Error en fallback: {str(e)}',
+                'memory_usage_mb': 2.0,
+                'disk_usage_mb': 0.0
+            }
 
     def list_files(self) -> List[FileNode]:
         """
         Obtiene la estructura del repositorio GitHub desde el árbol de la rama configurada.
-        Manejo detallado de errores comunes: token inválido, permisos, rate limits, rama inexistente.
+        VERSIÓN SÍNCRONA - Manejo detallado de errores comunes: token inválido, permisos, rate limits, rama inexistente.
+        """
+        try:
+            finished_list = self.process_parallel_sync()
+            return finished_list
+        except Exception as e:
+            logger.error(f'Error durante la obtención de directorios {e}')
+            raise SourceCodeError(f"Error obteniendo estructura: {str(e)}", provider="github") from e
+
+    def process_parallel_sync(self) -> List[FileNode]:
+        """
+        Ejecuta ambos métodos en paralelo usando ThreadPoolExecutor.
+        Versión síncrona que reemplaza process_parallel async.
+        """
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                # Enviar ambas tareas al pool de threads
+                future_main = executor.submit(self._structure_main_repo_sync)
+                future_wiki = executor.submit(self._structure_wiki_repo_sync)
+                
+                # Esperar a que ambas terminen con timeout
+                try:
+                    result1 = future_main.result(timeout=60)  # 60 segundos timeout
+                    result2 = future_wiki.result(timeout=30)  # 30 segundos para wiki
+                    
+                    # Combinar resultados
+                    combined = self.merge_results(result1, result2)
+                    print("✅ Procesamiento completado exitosamente")
+                    return combined
+                    
+                except concurrent.futures.TimeoutError:
+                    print("❌ Timeout en operaciones paralelas")
+                    # Cancelar tareas pendientes
+                    future_main.cancel()
+                    future_wiki.cancel()
+                    return []
+                    
+                except Exception as e:
+                    print(f"❌ Error durante el procesamiento: {e}")
+                    # Si el main repo falla, intentar solo ese
+                    try:
+                        if future_main.done() and not future_main.cancelled():
+                            result1 = future_main.result()
+                            print("⚠️ Usando solo estructura principal")
+                            return result1
+                    except:
+                        pass
+                    return []
+
+        except Exception as e:
+            print(f"❌ Error durante el procesamiento paralelo: {e}")
+            # Fallback: intentar solo estructura principal
+            try:
+                return self._structure_main_repo_sync()
+            except Exception as fallback_error:
+                logger.error(f"Fallback también falló: {fallback_error}")
+                return []
+
+    def _structure_main_repo_sync(self) -> List[FileNode]:
+        """
+        Versión síncrona de structure_main_repo.
+        Procesa el repositorio principal.
         """
         try:
             log_api_call("github", "list_files", branch=self.branch)
@@ -79,14 +422,56 @@ class GitHubManager(ISourceCodeManager):
 
             tree_response.raise_for_status()
             tree = tree_response.json().get("tree", [])
+            simplified_tree = list(map(lambda t: {'path': t['path'], 'type': t['type'], 'iswiki': False},
+                                       tree))
 
-            return self._build_file_tree(tree)
+            return self._build_file_tree(simplified_tree)
 
         except requests.HTTPError as http_err:
             raise SourceCodeError(f"❗ Error HTTP inesperado: {http_err}", provider="github") from http_err
-
         except Exception as e:
             raise SourceCodeError(f"❗ Error inesperado: {e}", provider="github") from e
+    
+    def _structure_wiki_repo_sync(self) -> List[FileNode]:
+        """
+        Versión síncrona de structure_wiki_repo.
+        Procesa el repositorio wiki.
+        """
+        try:
+            # Obtener estructura wiki
+            wiki_structure = self._get_wiki_structure_simple(repo=self.repo, owner=self.owner)
+            
+            if not wiki_structure or not wiki_structure.get('wiki_exists'):
+                return []
+            
+            files = wiki_structure.get('files', [])
+            if not files:
+                return []
+            
+            simplified_wiki_structure = []
+            for w_s in files:
+                if isinstance(w_s, dict) and 'path' in w_s:
+                    simplified_wiki_structure.append({
+                        'path': w_s['path'], 
+                        'type': 'blob',
+                        'iswiki': True  # GitHub tree format
+                    })
+
+            return self._build_file_tree(simplified_wiki_structure)
+            
+        except Exception as e:
+            logger.warning(f"Error obteniendo wiki: {e}")
+            return []  # Si falla wiki, continuamos sin ella
+
+    def merge_results(self, result1: List[FileNode], result2: List[FileNode]) -> List[FileNode]:
+        """
+        Une dos listas de FileNode en un resultado combinado.
+        """
+        if not result1:
+            return result2 if result2 else []
+        if not result2:
+            return result1
+        return result1 + result2
 
     def _build_file_tree(self, tree: List[dict]) -> List[FileNode]:
         """
@@ -100,26 +485,37 @@ class GitHubManager(ISourceCodeManager):
             item_path = item["path"]
             parts = item_path.split("/")
 
-            for i in range(1, len(parts)):
-                parent_path = "/".join(parts[:i])
-                if parent_path not in path_map:
-                    path_map[parent_path] = FileNode(
-                        name=parts[i - 1],
-                        path=parent_path,
+            # Crear todas las carpetas padre necesarias (excluyendo el archivo final)
+            for i in range(len(parts) - 1):
+                current_path = "/".join(parts[:i+1])
+                if current_path not in path_map:
+                    path_map[current_path] = FileNode(
+                        name=parts[i],
+                        path=current_path,
                         type="folder"
                     )
 
-            node_type = "file" if item["type"] == "blob" else "folder"
+            # Crear el nodo del archivo/carpeta actual
+            node_type = "file" if item.get("type") == "blob" else "folder"
             node = FileNode(
                 name=parts[-1],
                 path=item_path,
                 type=node_type,
-                download_url=f"{self.raw_base}/{item_path}" if node_type == "file" else None
+                download_url=f"{self.raw_base}/{item_path}" if node_type == "file" else None,
+                iswiki=item['iswiki']
             )
-
             path_map[item_path] = node
 
-            parent_path = "/".join(parts[:-1])
+        # Establecer todas las relaciones padre-hijo después de crear todos los nodos
+        for path, node in path_map.items():
+            if path == "":  # Skip root
+                continue
+            
+            # Encontrar el path del padre
+            path_parts = path.split("/")
+            parent_path = "/".join(path_parts[:-1])
+
+            # Agregar el nodo a su padre
             if parent_path in path_map:
                 path_map[parent_path].children.append(node)
 
@@ -272,6 +668,7 @@ class GitHubManager(ISourceCodeManager):
         except Exception as e:
             print(f"❌ Error con wiki raw URL: {str(e)}")
             # Fallback a API
+            wiki_api_base = f"https://api.github.com/repos/{self.owner}/{self.repo}"
             return self._read_wiki_via_api(wiki_api_base, file_path)
 
     def _read_wiki_via_api(self, wiki_api_base: str, file_path: str) -> str:

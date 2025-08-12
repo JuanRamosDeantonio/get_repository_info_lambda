@@ -81,6 +81,7 @@ def handle_get_structure(manager: ISourceCodeManager, provider: str) -> Dict[str
             nodes=serialize_structure(processed_structure["nodes"]),
             provider=provider,
             markdown=output_data["markdown"],
+            markdown_wiki=output_data["markdown_wiki"],
             metadata=output_data["metadata"],
             files=file_paths
         )
@@ -243,6 +244,13 @@ def _calculate_detailed_structure_metrics(nodes: List[FileNode]) -> Dict[str, an
 
     return metrics
 
+def filter_wiki_true(lista):     
+    """Filtra solo elementos con iswiki=True"""     
+    return [item for item in lista if item.iswiki] 
+def filter_wiki_false(lista):     
+    """Filtra solo elementos con iswiki=False"""     
+    return [item for item in lista if not item.iswiki]
+
 
 def _generate_structure_output(processed_structure: Dict[str, any], provider: str) -> Dict[str, any]:
     nodes = processed_structure["nodes"]
@@ -252,7 +260,12 @@ def _generate_structure_output(processed_structure: Dict[str, any], provider: st
     start_time = time.time()
 
     # Solo usar objetos FileNode aquí
-    markdown_structure = format_markdown(nodes)
+    wiki_nodes = filter_wiki_true(nodes)
+    main_nodes = filter_wiki_false(nodes)
+    m_s_wiki = format_markdown(wiki_nodes)
+    m_s_main = format_markdown(main_nodes)
+    markdown_structure = m_s_main
+    markdown_wiki = m_s_wiki
 
     markdown_duration = time.time() - start_time
     markdown_size = len(markdown_structure.encode("utf-8"))
@@ -275,7 +288,7 @@ def _generate_structure_output(processed_structure: Dict[str, any], provider: st
         "generation_time": markdown_duration
     })
 
-    return {"markdown": markdown_structure, "metadata": metadata}
+    return {"markdown": markdown_structure, "metadata": metadata, 'markdown_wiki': markdown_wiki}
 
 
 def _log_structure_metrics(metrics: Dict[str, any], provider: str) -> None:
