@@ -23,6 +23,7 @@ Versión: 2.0.0
 
 import sys
 from typing import Any
+import os, subprocess
 
 from app.core.logger import (
     get_logger,
@@ -44,6 +45,14 @@ def main() -> None:
     e invoca el handler correspondiente según la operación deseada.
     """
     try:
+ 
+        # Añadir /opt/bin al PATH para que git esté disponible
+        os.environ["PATH"] = "/opt/bin:" + os.environ.get("PATH", "")
+
+        # Ahora esto funciona porque buscará en /opt/bin/git
+        version = subprocess.check_output(["git", "--version"]).decode().strip()
+        print("Versión de git:", version)
+
         # Contexto artificial para simular entorno Lambda
         set_request_context(environment="local", source="main")
         logger.info("🧪 Inicio de prueba local")

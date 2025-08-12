@@ -130,7 +130,8 @@ class EnvironmentDetector:
     def get_temp_dir() -> str:
         """Obtiene directorio temporal apropiado para el entorno"""
         if EnvironmentDetector.is_lambda():
-            return '/tmp'  # Lambda tiene /tmp
+            print(f'PATH >>>>> {os.environ.get("PATH", "")}')
+            return os.environ.get("PATH", "")  # Lambda tiene /tmp
         else:
             return tempfile.gettempdir()  # Windows: C:\Users\...\AppData\Local\Temp
     

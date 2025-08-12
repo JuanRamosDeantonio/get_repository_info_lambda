@@ -31,6 +31,7 @@ Versión: 2.0.0
 
 import unicodedata
 from typing import Dict, Any
+import os, subprocess
 
 from app.core.logger import get_logger, set_request_context, clear_request_context
 from app.utils.request_parser import parse_lambda_event
@@ -94,7 +95,18 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     request_id = getattr(context, 'aws_request_id', 'unknown')
 
+
+ 
+# Añadir /opt/bin al PATH para que git esté disponible
+    os.environ["PATH"] = "/opt/bin:" + os.environ.get("PATH", "")
+    
+    # Ahora esto funciona porque buscará en /opt/bin/git
+   
     try:
+
+        version = subprocess.check_output(["git", "--version"]).decode().strip()
+        print("Versión de git:", version)
+
         # Contexto de ejecución para logging y trazabilidad
         set_request_context(request_id=request_id, environment="lambda")
         logger.info("🚀 Lambda execution started", extra={"request_id": request_id})
