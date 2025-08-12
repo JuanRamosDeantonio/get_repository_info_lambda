@@ -220,6 +220,27 @@ DANGEROUS_PATH_PATTERNS = [
 # Caracteres permitidos en nombres de archivo
 ALLOWED_FILENAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
 
+# Imagenes permitidas
+
+IMAGE_EXTENSIONS = {
+    # Formatos raster más comunes
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
+    
+    # Formatos raster especializados
+    '.tiff', '.tif', '.ico', '.cur', '.psd', '.xcf',
+    
+    # Formatos vectoriales
+    '.svg', '.eps', '.ai', '.pdf',
+    
+    # Formatos RAW de cámaras
+    '.raw', '.cr2', '.nef', '.arw', '.dng', '.orf', '.rw2',
+    
+    # Formatos menos comunes pero válidos
+    '.avif', '.heic', '.heif', '.jfif', '.pjpeg', '.pjp',
+    '.apng', '.flif', '.jp2', '.j2k', '.jpf', '.jpx', '.jpm',
+    '.mj2', '.wbmp', '.xbm', '.pbm', '.pgm', '.ppm', '.pnm'
+}
+
 # ========================================
 # CONFIGURACIÓN DE ENTORNO
 # ========================================
@@ -329,3 +350,24 @@ def get_optional_keys(provider: str) -> List[str]:
         List[str]: Lista de claves opcionales
     """
     return get_provider_config(provider)["optional_keys"]
+
+def is_image_file(file_path: str) -> bool:
+    """
+    Valida si un archivo es una imagen basándose en su extensión.
+    
+    Args:
+        file_path (str): Ruta del archivo o nombre del archivo
+        
+    Returns:
+        bool: True si es un archivo de imagen, False en caso contrario
+    """
+    if not file_path:
+        return False
+    
+    # Obtener la extensión del archivo en minúsculas
+    extension = file_path.lower().split('.')[-1] if '.' in file_path else ''
+    
+    # Agregar el punto al inicio para comparar con la constante
+    extension_with_dot = f'.{extension}' if extension else ''
+    
+    return extension_with_dot in IMAGE_EXTENSIONS

@@ -19,6 +19,7 @@ from app.managers.wiki_reader import (
     quick_get_file_content_memory,
     test_memory_usage
 )
+from app.core.constants import is_image_file
 
 logger = get_logger(__name__)
 
@@ -622,8 +623,8 @@ class GitHubManager(ISourceCodeManager):
         """
         try:
             # Asegurar extensión .md
-            if not file_path.endswith('.md'):
-                file_path += '.md'
+            #if not file_path.endswith('.md'):
+            #    file_path += '.md'
             
             log_api_call("github", "read_wiki_file", file_path=file_path)
             
@@ -649,7 +650,11 @@ class GitHubManager(ISourceCodeManager):
                 
                 # Decodificar como UTF-8
                 try:
-                    content = response.content.decode('utf-8')
+                    name_file = file_path.split('/', -1)
+                    if not is_image_file(name_file[1]):
+                        content = response.content.decode('utf-8')
+                    else:
+                        content = response.content
                     print(f"✅ Wiki raw URL exitosa. Size: {len(content)} caracteres")
                     return content
                 except UnicodeDecodeError:
