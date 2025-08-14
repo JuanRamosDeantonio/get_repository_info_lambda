@@ -651,7 +651,7 @@ class GitHubManager(ISourceCodeManager):
                 # Decodificar como UTF-8
                 try:
                     name_file = file_path.split('/', -1)
-                    if not is_image_file(name_file[1]):
+                    if not is_image_file(file_path):
                         content = response.content.decode('utf-8')
                     else:
                         content = response.content
