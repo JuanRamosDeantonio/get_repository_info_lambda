@@ -779,6 +779,8 @@ class HybridDataParser:
     def _build_wiki_file(self, path: str, size: int, git_hash: str, 
                         owner: str, repo: str, security_warnings: List[str]) -> Optional[WikiFile]:
         """Construye WikiFile con validaciones de seguridad"""
+
+        path = fix_unicode_hyphens(path)
         # Validar path
         is_valid, error = self.validator.validate_file_path(path)
         if not is_valid:
@@ -1449,6 +1451,12 @@ def lambda_handler(event, context):
                 'hint': 'Check logs for details'
             }
         }
+
+def fix_unicode_hyphens(filename: str) -> str:     
+    """Arregla guiones Unicode codificados en octal"""     
+    return filename.strip('"\'').replace('\\342\\200\\220', '-') 
+# Uso result = fix_unicode_hyphens('"Especificacion-\\342\\200\\220-AddReturnBalanceSettleAccGMF.md"') 
+# print(result)
 
 # =============================================================================
 # MAIN PARA TESTING LOCAL
