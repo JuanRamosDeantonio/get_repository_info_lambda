@@ -202,22 +202,7 @@ def _validate_download_path(path: str, provider: str) -> str:
     
     # Validaciones adicionales específicas para descarga
     filename = safe_path.split('/')[-1]
-    
-    # Verificar que el filename sea seguro
-    if not is_safe_filename(filename):
-        log_security_event(
-            "unsafe_filename_download",
-            f"Unsafe filename requested: {filename}",
-            "WARNING",
-            provider=provider,
-            path=safe_path
-        )
-        raise SecurityError(
-            f"Nombre de archivo no seguro: {filename}",
-            attack_type="unsafe_filename",
-            detected_pattern=filename
-        )
-    
+      
     # Detectar patrones de archivos sensibles
     sensitive_patterns = [
         '.env', '.key', '.pem', '.p12', '.pfx',  # Archivos de credenciales
