@@ -74,14 +74,11 @@ def handle_get_structure(manager: ISourceCodeManager, provider: str) -> Dict[str
         nodes = _fetch_repository_structure(manager, provider)
         processed_structure = _process_structure(nodes, provider)
         output_data = _generate_structure_output(processed_structure, provider)
-
-        file_paths = flatten_file_paths(processed_structure["nodes"])
-
+        file_paths = flatten_file_paths(nodes)
         response = create_structure_response(
             nodes=serialize_structure(processed_structure["nodes"]),
             provider=provider,
             markdown=output_data["markdown"],
-            markdown_wiki=output_data["markdown_wiki"],
             metadata=output_data["metadata"],
             files=file_paths
         )
@@ -244,12 +241,6 @@ def _calculate_detailed_structure_metrics(nodes: List[FileNode]) -> Dict[str, an
 
     return metrics
 
-def filter_wiki_true(lista):     
-    """Filtra solo elementos con iswiki=True"""     
-    return [item for item in lista if item.iswiki] 
-def filter_wiki_false(lista):     
-    """Filtra solo elementos con iswiki=False"""     
-    return [item for item in lista if not item.iswiki]
 
 
 def _generate_structure_output(processed_structure: Dict[str, any], provider: str) -> Dict[str, any]:
@@ -260,12 +251,7 @@ def _generate_structure_output(processed_structure: Dict[str, any], provider: st
     start_time = time.time()
 
     # Solo usar objetos FileNode aquí
-    wiki_nodes = filter_wiki_true(nodes)
-    main_nodes = filter_wiki_false(nodes)
-    m_s_wiki = format_markdown(wiki_nodes)
-    m_s_main = format_markdown(main_nodes)
-    markdown_structure = m_s_main
-    markdown_wiki = m_s_wiki
+    markdown_structure = format_markdown(nodes)
 
     markdown_duration = time.time() - start_time
     markdown_size = len(markdown_structure.encode("utf-8"))
@@ -288,7 +274,7 @@ def _generate_structure_output(processed_structure: Dict[str, any], provider: st
         "generation_time": markdown_duration
     })
 
-    return {"markdown": markdown_structure, "metadata": metadata, 'markdown_wiki': markdown_wiki}
+    return {"markdown": markdown_structure, "metadata": metadata}
 
 
 def _log_structure_metrics(metrics: Dict[str, any], provider: str) -> None:

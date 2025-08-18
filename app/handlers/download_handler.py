@@ -124,6 +124,12 @@ def handle_download_file(manager: Any, path: str, provider: str, iswiki: bool) -
 
         logger.info(f"Primeros 100 caracteres del contenido {processed_file['content'][:100]}")
 
+        print("---------------------------------------------------------------------")
+        print(BUCKET_NAME)
+        print(key_file)
+        print(FOLDER_BUCKET)
+        print("---------------------------------------------------------------------")
+
         response_s3 = s3_client.put_object(Bucket=BUCKET_NAME, Key=key_file, Body=processed_file['content'])
 
         logger.info(f'Operación de s3 ejecutada con status code -> {response_s3['ResponseMetadata']['HTTPStatusCode']}')
@@ -692,9 +698,17 @@ def _process_downloaded_file(file_data: Dict[str, Any], path: str, provider: str
     
     # Detectar tipo de contenido
     content_type = _detect_advanced_content_type(content, filename)
+
+    print("********************************************CONTENTTYPE")
+    print(content_type)
+    print("********************************************CONTENTTYPE")
     
     # Análisis de contenido para métricas
     file_analysis = _analyze_file_content(content, filename)
+
+    print("********************************************CONTENTTYPE")
+    print(file_analysis)
+    print("********************************************CONTENTTYPE")
     
     # Generar hash para integridad (opcional, para archivos pequeños)
     file_hash = None
