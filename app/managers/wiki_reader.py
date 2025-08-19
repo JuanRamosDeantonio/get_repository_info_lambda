@@ -789,8 +789,7 @@ class HybridDataParser:
             print(path)
             print("PATH ------------------------------------------------------------")
 
-            decoded = decode_escaped_utf8(path)
-            path = normalize_dashes(decoded)
+            path = fix_unicode_hyphens(path)
             path= strip_wrapping_quotes(path)
 
             print("PATHDECODE ------------------------------------------------------------")
@@ -1492,28 +1491,9 @@ def lambda_handler(event, context):
         }
 
 # 1) Decodifica \ooo, \xHH, \uXXXX si vienen escapados en el string
-def decode_escaped_utf8(name: str) -> str:
-    """
-    Convierte secuencias de escape (\\342\\200\\220, \\xE2\\x80\\x90, \\u2010) a Unicode real.
-    """
-    # Si no hay barras invertidas, devuelve tal cual (evita sobredecodificar)
-    if "\\" not in name:
-        return name
-
-    # Primero: interpreta escapes (\ooo, \xHH, \uXXXX)
-    tmp = codecs.decode(name, "unicode_escape")
-    # Luego: si eso resultó en bytes Latin-1 de un UTF-8, recupéralo
-    try:
-        return tmp.encode("latin-1").decode("utf-8")
-    except UnicodeDecodeError:
-        # No estaba doble-escapado como UTF-8, deja el resultado de unicode_escape
-        return tmp
-
-# 2) Normaliza todas las variantes de “rayita” a '-'
-_DASHES = "‐-‒–—―−"  # U+2010..U+2212 (hyphen/minus family)
-
-def normalize_dashes(name: str) -> str:
-    return name.translate({ord(ch): "-" for ch in _DASHES})
+def fix_unicode_hyphens(filename: str) -> str:    
+    """Arregla guiones Unicode codificados en octal"""    
+    return filename.replace('-\\342\\200\\220-', '-‐-')
 
 
 def strip_wrapping_quotes(s: str) -> str:

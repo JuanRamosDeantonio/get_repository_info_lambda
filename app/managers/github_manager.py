@@ -688,6 +688,9 @@ class GitHubManager(ISourceCodeManager):
             str: Contenido del archivo como string UTF-8
         """
         try:
+
+            print("************************************************************************ingresamos al wiki reader ********************************")        
+
             api_url = f"{wiki_api_base}/contents/{file_path}"
             
             print(f"🔄 Usando GitHub API para wiki: {api_url}")
