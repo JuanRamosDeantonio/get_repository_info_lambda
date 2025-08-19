@@ -26,6 +26,8 @@ GitHub Wiki Reader - VERSIÓN FINAL ESTABLE + GIT LAMBDA OPTIMIZADO
 - jquery/jquery: ~1.2 segundos, 13 archivos
 """
 
+import re
+import codecs
 import os
 import time
 import subprocess
@@ -718,6 +720,7 @@ class HybridDataParser:
             
             wiki_file = self._parse_git_line(line, owner, repo, security_warnings)
             if wiki_file and wiki_file.is_safe:
+                print(f"{wiki_file} ***********************************************************")
                 files.append(wiki_file)
         
         return files, security_warnings
@@ -737,6 +740,7 @@ class HybridDataParser:
             
             wiki_file = self._parse_api_item(item, owner, repo, security_warnings)
             if wiki_file and wiki_file.is_safe:
+                print(f"{wiki_file} ***********************************************************")
                 files.append(wiki_file)
         
         return files, security_warnings
@@ -779,43 +783,78 @@ class HybridDataParser:
     def _build_wiki_file(self, path: str, size: int, git_hash: str, 
                         owner: str, repo: str, security_warnings: List[str]) -> Optional[WikiFile]:
         """Construye WikiFile con validaciones de seguridad"""
+              
+        try:      
+            print("PATH ------------------------------------------------------------")
+            print(path)
+            print("PATH ------------------------------------------------------------")
 
-        path = fix_unicode_hyphens(path)
-        # Validar path
-        is_valid, error = self.validator.validate_file_path(path)
-        if not is_valid:
-            security_warnings.append(f"Invalid path: {error}")
-            return None
+            decoded = decode_escaped_utf8(path)
+            path = normalize_dashes(decoded)
+            path= strip_wrapping_quotes(path)
+
+            print("PATHDECODE ------------------------------------------------------------")
+            print(path)
+            print("PATHDECODE ------------------------------------------------------------")
+
+
+            # Validar path
+            is_valid, error = self.validator.validate_file_path(path)
+            print("isvalid ------------------------------------------------------------")
+            print(is_valid)
+            print("isvalid ------------------------------------------------------------")
+            if not is_valid:
+                security_warnings.append(f"Invalid path: {error}")
+                return None
+            
+            name = os.path.basename(path)
+
+            print("name ------------------------------------------------------------")
+            print(name)
+            print("name ------------------------------------------------------------")
+            
+            # Filtrar nombres de archivo problemáticos
+            if not name or name in ['.md', '.txt', '.', '..'] or len(name.strip()) == 0:
+                security_warnings.append(f"Skipping problematic filename: '{name}'")
+                return None
+            
+            directory = os.path.dirname(path) if '/' in path else ''
+            
+            # Validar extensión
+            file_ext = self._get_file_extension(name)
+            is_safe = file_ext in config.ALLOWED_FILE_EXTENSIONS or file_ext == ''
+            
+            if not is_safe:
+                security_warnings.append(f"Suspicious extension: {file_ext}")
+            
+            file_type = self._determine_file_type(name)
+            raw_url = self._build_raw_url(owner, repo, path)
+
+            print(f"Llegue WikiFile {path} {name} **************************************************************")
+            
+            wikiflie = WikiFile(name=name,
+                path=path,
+                directory=directory,
+                file_type=file_type,
+                size=size,
+                git_hash=git_hash,
+                raw_url=raw_url,
+                is_safe=True)
+            
+            print(wikiflie)
+
+            return wikiflie
         
-        name = os.path.basename(path)
-        
-        # Filtrar nombres de archivo problemáticos
-        if not name or name in ['.md', '.txt', '.', '..'] or len(name.strip()) == 0:
-            security_warnings.append(f"Skipping problematic filename: '{name}'")
-            return None
-        
-        directory = os.path.dirname(path) if '/' in path else ''
-        
-        # Validar extensión
-        file_ext = self._get_file_extension(name)
-        is_safe = file_ext in config.ALLOWED_FILE_EXTENSIONS or file_ext == ''
-        
-        if not is_safe:
-            security_warnings.append(f"Suspicious extension: {file_ext}")
-        
-        file_type = self._determine_file_type(name)
-        raw_url = self._build_raw_url(owner, repo, path)
-        
-        return WikiFile(
-            name=name,
-            path=path,
-            directory=directory,
-            file_type=file_type,
-            size=size,
-            git_hash=git_hash,
-            raw_url=raw_url,
-            is_safe=is_safe
-        )
+        except Exception as e:
+            logger.exception(
+            "Error en descarga de archivo",
+            extra={
+                "error": str(e),
+                "error_type": e.__class__.__name__,
+                "path": path,                  # ej: "Recursos/DiagramaArq.png"
+            },
+    )
+            
     
     def _get_file_extension(self, filename: str) -> str:
         return filename.lower().split('.')[-1] if '.' in filename else ''
@@ -1452,11 +1491,36 @@ def lambda_handler(event, context):
             }
         }
 
-def fix_unicode_hyphens(filename: str) -> str:     
-    """Arregla guiones Unicode codificados en octal"""     
-    return filename.strip('"\'').replace('\\342\\200\\220', '-') 
-# Uso result = fix_unicode_hyphens('"Especificacion-\\342\\200\\220-AddReturnBalanceSettleAccGMF.md"') 
-# print(result)
+# 1) Decodifica \ooo, \xHH, \uXXXX si vienen escapados en el string
+def decode_escaped_utf8(name: str) -> str:
+    """
+    Convierte secuencias de escape (\\342\\200\\220, \\xE2\\x80\\x90, \\u2010) a Unicode real.
+    """
+    # Si no hay barras invertidas, devuelve tal cual (evita sobredecodificar)
+    if "\\" not in name:
+        return name
+
+    # Primero: interpreta escapes (\ooo, \xHH, \uXXXX)
+    tmp = codecs.decode(name, "unicode_escape")
+    # Luego: si eso resultó en bytes Latin-1 de un UTF-8, recupéralo
+    try:
+        return tmp.encode("latin-1").decode("utf-8")
+    except UnicodeDecodeError:
+        # No estaba doble-escapado como UTF-8, deja el resultado de unicode_escape
+        return tmp
+
+# 2) Normaliza todas las variantes de “rayita” a '-'
+_DASHES = "‐-‒–—―−"  # U+2010..U+2212 (hyphen/minus family)
+
+def normalize_dashes(name: str) -> str:
+    return name.translate({ord(ch): "-" for ch in _DASHES})
+
+
+def strip_wrapping_quotes(s: str) -> str:
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        return s[1:-1]
+    return s
 
 # =============================================================================
 # MAIN PARA TESTING LOCAL
