@@ -41,8 +41,8 @@ def format_markdown(nodes: List[FileNode], indent: int = 0) -> str:
     prefix = "  " * indent  # Espacios por nivel de profundidad
 
     for node in nodes:
-        icon = "📁" if node.type == "folder" else "📄"
-        line = f"{prefix}- {icon} `{node.name}`"
+        #icon = "📁" if node.type == "folder" else "📄"
+        line = f"{prefix}- {node.name}"
         lines.append(line)
 
         # Procesar hijos recursivamente (si existen)
