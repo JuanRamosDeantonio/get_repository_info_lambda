@@ -30,6 +30,7 @@ class FileNode:
     name: str
     path: str
     type: str  # "file" o "folder"
+    title: Optional[str] = None
     children: Optional[List["FileNode"]] = field(default_factory=list)
     download_url: Optional[str] = None
     iswiki: Optional[bool] = False

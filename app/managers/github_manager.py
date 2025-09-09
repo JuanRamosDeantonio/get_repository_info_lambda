@@ -472,6 +472,8 @@ class GitHubManager(ISourceCodeManager):
             return result2 if result2 else []
         if not result2:
             return result1
+        result1[0].title = 'Grupo de archivos del repositorio'
+        result2[0].title = 'Grupo de archivos de la wiki'
         return result1 + result2
 
     def _build_file_tree(self, tree: List[dict]) -> List[FileNode]:
